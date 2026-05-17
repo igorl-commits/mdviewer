@@ -92,7 +92,215 @@ class Api:
 
 
 def build_html(config: dict) -> str:
-    pass  # implemented in Task 4
+    presets_json      = json.dumps(HLJS_THEMES)
+    presets_list_json = json.dumps(PRESETS)
+    init_theme        = config['theme']
+    init_preset       = config['preset']
+
+    return (
+        """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style id="hljs-theme"></style>
+<style>
+:root {
+  --bg:#1e1e2e;--fg:#cdd6f4;--heading:#cba6f7;--link:#89b4fa;
+  --code-bg:#313244;--border:#45475a;--muted:#6c7086;
+  --menu-bg:#2a2a3e;--menu-border:#45475a;--menu-hover:#313244;--menu-fg:#cdd6f4;
+}
+[data-theme="light"] {
+  --bg:#ffffff;--fg:#24292f;--heading:#6639ba;--link:#0969da;
+  --code-bg:#f6f8fa;--border:#d0d7de;--muted:#57606a;
+  --menu-bg:#ffffff;--menu-border:#d0d7de;--menu-hover:#f6f8fa;--menu-fg:#24292f;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  font-size:15px;line-height:1.7;
+  -webkit-app-region:drag;user-select:none;
+}
+#page{max-width:860px;margin:0 auto;padding:36px 48px 64px;-webkit-app-region:drag}
+#page a,#page code,#page pre,#page table,#page input,#page img{
+  -webkit-app-region:no-drag;user-select:text;
+}
+#controls{
+  position:fixed;top:8px;right:10px;display:flex;gap:4px;
+  opacity:0;transition:opacity .2s;z-index:200;-webkit-app-region:no-drag;
+}
+body:hover #controls{opacity:1}
+.ctrl-btn{
+  background:rgba(128,128,128,.15);border:none;border-radius:5px;
+  color:var(--fg);cursor:pointer;font-size:14px;line-height:1;
+  padding:5px 9px;-webkit-app-region:no-drag;transition:background .15s;
+}
+.ctrl-btn:hover{background:rgba(128,128,128,.35)}
+#ctx-menu{
+  position:fixed;background:var(--menu-bg);border:1px solid var(--menu-border);
+  border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.35);
+  padding:5px 0;min-width:190px;z-index:1000;-webkit-app-region:no-drag;
+}
+.ctx-item{cursor:pointer;font-size:13px;padding:6px 14px;color:var(--menu-fg);white-space:nowrap}
+.ctx-item:hover{background:var(--menu-hover)}
+.ctx-item.active{font-weight:600}
+.ctx-divider{border-top:1px solid var(--menu-border);margin:4px 0}
+.ctx-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:4px 14px 2px}
+h1,h2,h3,h4,h5,h6{color:var(--heading);margin:1.4em 0 .5em;font-weight:600}
+h1{font-size:2em;margin-top:.6em}
+h2{font-size:1.5em;border-bottom:1px solid var(--border);padding-bottom:.3em}
+h3{font-size:1.25em}
+p{margin:.8em 0}
+a{color:var(--link);text-decoration:none}
+a:hover{text-decoration:underline}
+ul,ol{margin:.6em 0 .6em 1.6em}
+li{margin:.2em 0}
+blockquote{border-left:3px solid var(--border);color:var(--muted);margin:1em 0;padding:.3em 1em}
+code{
+  background:var(--code-bg);border-radius:4px;
+  font-family:'Cascadia Code','Fira Code','Consolas',monospace;
+  font-size:.88em;padding:.15em .4em;
+  -webkit-app-region:no-drag;user-select:text;
+}
+pre{
+  background:var(--code-bg);border-radius:8px;margin:1em 0;
+  overflow-x:auto;padding:1em 1.2em;
+  -webkit-app-region:no-drag;user-select:text;
+}
+pre code{background:none;font-size:.9em;padding:0}
+table{border-collapse:collapse;margin:1em 0;width:100%}
+th,td{border:1px solid var(--border);padding:.5em .9em;text-align:left}
+th{background:var(--code-bg);font-weight:600}
+tr:nth-child(even) td{background:rgba(128,128,128,.05)}
+img{max-width:100%;border-radius:4px}
+hr{border:none;border-top:1px solid var(--border);margin:1.5em 0}
+input[type="checkbox"]{margin-right:.4em;-webkit-app-region:no-drag}
+</style>
+</head>
+<body data-theme="__THEME__">
+<div id="controls">
+  <button class="ctrl-btn" id="btn-gear" title="Settings">&#9881;</button>
+  <button class="ctrl-btn" id="btn-close" title="Close">&#10005;</button>
+</div>
+<div id="page"><div id="content"></div></div>
+<div id="ctx-menu" hidden></div>
+<script>__MARKDOWN_IT_JS__</script>
+<script>__HLJS_JS__</script>
+<script>
+const THEMES = __PRESETS_JSON__;
+const PRESETS = __PRESETS_LIST_JSON__;
+
+let currentTheme  = '__THEME__';
+let currentPreset = '__PRESET__';
+
+const hljsStyle = document.getElementById('hljs-theme');
+const ctxMenu   = document.getElementById('ctx-menu');
+
+function setTheme(t) {
+  currentTheme = t;
+  document.body.dataset.theme = t;
+}
+
+function setPreset(key) {
+  currentPreset = key;
+  hljsStyle.textContent = THEMES[key] || '';
+  ctxMenu.querySelectorAll('.preset-item').forEach(el => {
+    el.textContent = (el.dataset.key === key ? '\\u2713  ' : '    ') + el.dataset.label;
+    el.classList.toggle('active', el.dataset.key === key);
+  });
+}
+
+function buildMenu(x, y) {
+  ctxMenu.replaceChildren();
+
+  const themeItem = document.createElement('div');
+  themeItem.className = 'ctx-item';
+  themeItem.textContent = currentTheme === 'dark' ? '\\u2600  Switch to Light' : '\\uD83C\\uDF19  Switch to Dark';
+  themeItem.onclick = () => { setTheme(currentTheme === 'dark' ? 'light' : 'dark'); closeMenu(); };
+  ctxMenu.appendChild(themeItem);
+
+  ctxMenu.appendChild(Object.assign(document.createElement('div'), {className: 'ctx-divider'}));
+
+  const lbl = document.createElement('div');
+  lbl.className = 'ctx-label';
+  lbl.textContent = 'Syntax Theme';
+  ctxMenu.appendChild(lbl);
+
+  PRESETS.forEach(([key, label]) => {
+    const item = document.createElement('div');
+    item.className = 'ctx-item preset-item';
+    item.dataset.key   = key;
+    item.dataset.label = label;
+    item.textContent   = (key === currentPreset ? '\\u2713  ' : '    ') + label;
+    if (key === currentPreset) item.classList.add('active');
+    item.onclick = () => { setPreset(key); closeMenu(); };
+    ctxMenu.appendChild(item);
+  });
+
+  ctxMenu.hidden = false;
+  const mw = ctxMenu.offsetWidth, mh = ctxMenu.offsetHeight;
+  ctxMenu.style.left = Math.min(x, window.innerWidth  - mw - 8) + 'px';
+  ctxMenu.style.top  = Math.min(y, window.innerHeight - mh - 8) + 'px';
+}
+
+function closeMenu() { ctxMenu.hidden = true; }
+
+document.addEventListener('contextmenu', e => { e.preventDefault(); buildMenu(e.clientX, e.clientY); });
+document.addEventListener('click', e => { if (!ctxMenu.contains(e.target)) closeMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+
+document.getElementById('btn-gear').addEventListener('click', e => {
+  e.stopPropagation();
+  const r = e.currentTarget.getBoundingClientRect();
+  buildMenu(r.left, r.bottom + 4);
+});
+
+document.getElementById('btn-close').addEventListener('click', () => {
+  pywebview.api.close_window();
+});
+
+const md = markdownit({
+  html: false,
+  linkify: true,
+  typographer: true,
+  highlight: (str, lang) => {
+    if (lang && hljs.getLanguage(lang)) {
+      try { return hljs.highlight(str, {language: lang, ignoreIllegals: true}).value; } catch (_) {}
+    }
+    return hljs.highlightAuto(str).value;
+  }
+});
+
+async function init() {
+  const contentEl = document.getElementById('content');
+  try {
+    const raw = await pywebview.api.get_file();
+    const rendered = md.render(raw);
+    const frag = document.createRange().createContextualFragment(rendered);
+    contentEl.replaceChildren(frag);
+    setPreset(currentPreset);
+    setTheme(currentTheme);
+  } catch (e) {
+    const errEl = Object.assign(document.createElement('p'), {
+      textContent: 'Failed to load file: ' + e,
+    });
+    errEl.style.cssText = 'color:var(--muted);padding:2em';
+    contentEl.replaceChildren(errEl);
+  }
+}
+
+window.addEventListener('pywebviewready', init);
+</script>
+</body>
+</html>"""
+        .replace('__MARKDOWN_IT_JS__', MARKDOWN_IT_JS)
+        .replace('__HLJS_JS__',        HLJS_JS)
+        .replace('__PRESETS_JSON__',      presets_json)
+        .replace('__PRESETS_LIST_JSON__', presets_list_json)
+        .replace('__THEME__',   init_theme)
+        .replace('__PRESET__',  init_preset)
+    )
 
 
 def main() -> None:
