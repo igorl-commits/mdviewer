@@ -304,7 +304,63 @@ window.addEventListener('pywebviewready', init);
 
 
 def main() -> None:
-    pass  # implemented in Task 5
+    if len(sys.argv) < 2:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        path = filedialog.askopenfilename(
+            title='Open Markdown file',
+            filetypes=[('Markdown', '*.md *.markdown'), ('All files', '*.*')],
+        )
+        root.destroy()
+        if not path:
+            return
+    else:
+        path = sys.argv[1]
+
+    if not os.path.isfile(path):
+        import tkinter as tk
+        import tkinter.messagebox as mb
+        root = tk.Tk()
+        root.withdraw()
+        mb.showerror('MD Viewer', f'File not found:\n{path}')
+        root.destroy()
+        return
+
+    config = load_config()
+    win    = config['window']
+    x, y  = clamp_position(win.get('x'), win.get('y'), win['width'], win['height'])
+
+    api    = Api(path)
+    window = webview.create_window(
+        title=os.path.basename(path),
+        html=build_html(config),
+        js_api=api,
+        frameless=True,
+        easy_drag=True,
+        width=win['width'],
+        height=win['height'],
+        x=x,
+        y=y,
+        min_size=(400, 300),
+    )
+    api.window = window
+
+    def on_closing():
+        try:
+            state_json = window.evaluate_js(
+                'JSON.stringify({theme:currentTheme,preset:currentPreset,'
+                'width:window.outerWidth,height:window.outerHeight,'
+                'x:window.screenX,y:window.screenY})'
+            )
+            if state_json:
+                save_config_file(json.loads(state_json))
+        except Exception:
+            pass
+
+    window.events.closing += on_closing
+    webview.start()
 
 
 if __name__ == '__main__':
