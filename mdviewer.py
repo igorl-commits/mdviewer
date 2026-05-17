@@ -332,17 +332,23 @@ tr:nth-child(even) td{background:rgba(128,128,128,.05)}
 img{max-width:100%;border-radius:4px}
 hr{border:none;border-top:1px solid var(--border);margin:1.5em 0}
 input[type="checkbox"]{margin-right:.4em;-webkit-app-region:no-drag}
-/* Floating thin scrollbars — overlay the content, no track, no borders */
+/* Floating auto-hiding scrollbar — overlay only, no track, fades in on use */
 ::-webkit-scrollbar{width:8px;height:8px;background:transparent}
 ::-webkit-scrollbar-track{background:transparent;border:none}
 ::-webkit-scrollbar-thumb{
-  background:rgba(128,128,128,.25);
+  background:transparent;
   border-radius:8px;
   border:none;
+  transition:background .25s ease;
 }
-::-webkit-scrollbar-thumb:hover{background:rgba(128,128,128,.5)}
 ::-webkit-scrollbar-corner{background:transparent}
-html{scrollbar-width:thin;scrollbar-color:rgba(128,128,128,.25) transparent}
+/* Reveal thumb while actively scrolling OR pointer is over content */
+html.scrolling ::-webkit-scrollbar-thumb,
+body:hover ::-webkit-scrollbar-thumb{background:rgba(128,128,128,.3)}
+html.scrolling ::-webkit-scrollbar-thumb:hover,
+body:hover ::-webkit-scrollbar-thumb:hover{background:rgba(128,128,128,.55)}
+html{scrollbar-width:thin;scrollbar-color:transparent transparent;transition:scrollbar-color .25s}
+html.scrolling,html:hover{scrollbar-color:rgba(128,128,128,.3) transparent}
 </style>
 </head>
 <body data-theme="__THEME__">
@@ -501,6 +507,18 @@ function tryInit() {
     init();
   }
 }
+// Auto-hide scrollbar: add `scrolling` class while wheel/scroll happens, clear after pause
+let _scrollHideTimer = null;
+function markScrolling() {
+  document.documentElement.classList.add('scrolling');
+  clearTimeout(_scrollHideTimer);
+  _scrollHideTimer = setTimeout(() => {
+    document.documentElement.classList.remove('scrolling');
+  }, 900);
+}
+window.addEventListener('scroll', markScrolling, {passive: true});
+window.addEventListener('wheel',  markScrolling, {passive: true});
+
 window.addEventListener('pywebviewready', tryInit);
 let _polls = 0;
 const _pollId = setInterval(() => {
