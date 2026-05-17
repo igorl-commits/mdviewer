@@ -184,6 +184,9 @@ class Api:
         _dlog('Api.toggle_fullscreen')
         if self._window:
             self._window.toggle_fullscreen()
+            # pywebview resets FormBorderStyle on toggle, stripping WS_THICKFRAME.
+            # Re-apply so resize keeps working after returning from fullscreen.
+            _enable_native_resize(self._ensure_hwnd())
 
     def js_log(self, msg: str) -> None:
         """JS calls this to forward console messages into the Python debug log."""
