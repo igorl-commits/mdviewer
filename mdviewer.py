@@ -397,10 +397,12 @@ const md = markdownit({
   linkify: true,
   typographer: true,
   highlight: (str, lang) => {
+    let body;
     if (lang && hljs.getLanguage(lang)) {
-      try { return hljs.highlight(str, {language: lang, ignoreIllegals: true}).value; } catch (_) {}
+      try { body = hljs.highlight(str, {language: lang, ignoreIllegals: true}).value; } catch (_) {}
     }
-    return hljs.highlightAuto(str).value;
+    if (!body) body = hljs.highlightAuto(str).value;
+    return '<pre class="hljs"><code>' + body + '</code></pre>';
   }
 });
 
