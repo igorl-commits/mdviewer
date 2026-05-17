@@ -127,6 +127,35 @@ _WS_THICKFRAME = 0x00040000
 _SWP_FRAMECHANGED = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020
 
 
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ('cbSize',   ctypes.c_uint32),
+        ('rcMonitor', _RECT),
+        ('rcWork',    _RECT),  # excludes taskbar
+        ('dwFlags',   ctypes.c_uint32),
+    ]
+
+
+def _work_area_for(hwnd):
+    """Work-area (excludes taskbar) of the monitor that contains the window."""
+    if not hwnd:
+        return None
+    user32 = ctypes.windll.user32
+    hmon = user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST
+    if not hmon:
+        return None
+    mi = _MONITORINFO()
+    mi.cbSize = ctypes.sizeof(_MONITORINFO)
+    if user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+        r = mi.rcWork
+        return r.left, r.top, r.right - r.left, r.bottom - r.top
+    return None
+
+
+# Window width that fits the prose column (CSS #page max-width 860 + 48*2 padding + scrollbar margin)
+_READING_WIDTH = 980
+
+
 def _enable_native_resize(hwnd):
     """Re-add WS_THICKFRAME so the OS handles resize at window edges natively.
 
@@ -187,6 +216,31 @@ class Api:
             # pywebview resets FormBorderStyle on toggle, stripping WS_THICKFRAME.
             # Re-apply so resize keeps working after returning from fullscreen.
             _enable_native_resize(self._ensure_hwnd())
+
+    def snap(self, mode: str) -> None:
+        """Snap window to a layout on the current monitor.
+
+        mode in {'left', 'right', 'reading'}
+          left/right : half of the work area
+          reading    : column width that fits the prose, full work-area height, centered
+        """
+        _dlog('Api.snap mode=%s', mode)
+        hwnd = self._ensure_hwnd()
+        work = _work_area_for(hwnd)
+        if not hwnd or not work:
+            return
+        wx, wy, ww, wh = work
+        if mode == 'left':
+            x, y, w, h = wx, wy, ww // 2, wh
+        elif mode == 'right':
+            x, y, w, h = wx + ww - ww // 2, wy, ww // 2, wh
+        elif mode == 'reading':
+            rw = min(_READING_WIDTH, ww)
+            x, y, w, h = wx + (ww - rw) // 2, wy, rw, wh
+        else:
+            return
+        # SWP_NOZORDER | SWP_NOACTIVATE
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, int(x), int(y), int(w), int(h), 0x0014)
 
     def js_log(self, msg: str) -> None:
         """JS calls this to forward console messages into the Python debug log."""
@@ -282,7 +336,11 @@ input[type="checkbox"]{margin-right:.4em;-webkit-app-region:no-drag}
 </head>
 <body data-theme="__THEME__">
 <div id="controls">
-  <button class="ctrl-btn" id="btn-gear" title="Settings">&#9881;</button>
+  <button class="ctrl-btn" id="btn-tall"  title="Doc width, full height">&#9647;</button>
+  <button class="ctrl-btn" id="btn-left"  title="Snap left half">&#9703;</button>
+  <button class="ctrl-btn" id="btn-right" title="Snap right half">&#9704;</button>
+  <button class="ctrl-btn" id="btn-full"  title="Fullscreen (F11)">&#9974;</button>
+  <button class="ctrl-btn" id="btn-gear"  title="Settings">&#9881;</button>
   <button class="ctrl-btn" id="btn-close" title="Close">&#10005;</button>
 </div>
 <div id="page"><div id="content"></div></div>
@@ -372,6 +430,10 @@ document.getElementById('btn-gear').addEventListener('click', e => {
 document.getElementById('btn-close').addEventListener('click', () => {
   pywebview.api.close_window();
 });
+document.getElementById('btn-tall').addEventListener('click',  () => pywebview.api.snap('reading'));
+document.getElementById('btn-left').addEventListener('click',  () => pywebview.api.snap('left'));
+document.getElementById('btn-right').addEventListener('click', () => pywebview.api.snap('right'));
+document.getElementById('btn-full').addEventListener('click',  () => pywebview.api.toggle_fullscreen());
 // Window movement: pywebview easy_drag handles drag via -webkit-app-region: drag.
 // Window resize: native Win32 (WS_THICKFRAME added on load, OS handles edges).
 
