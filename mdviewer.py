@@ -90,6 +90,15 @@ class Api:
         if self.window:
             self.window.destroy()
 
+    def set_window_geometry(self, width: int, height: int, x: int, y: int) -> None:
+        if self.window:
+            self.window.resize(width, height)
+            self.window.move(x, y)
+
+    def toggle_fullscreen(self) -> None:
+        if self.window:
+            self.window.toggle_fullscreen()
+
 
 def build_html(config: dict) -> str:
     presets_json      = json.dumps(HLJS_THEMES)
@@ -176,9 +185,22 @@ tr:nth-child(even) td{background:rgba(128,128,128,.05)}
 img{max-width:100%;border-radius:4px}
 hr{border:none;border-top:1px solid var(--border);margin:1.5em 0}
 input[type="checkbox"]{margin-right:.4em;-webkit-app-region:no-drag}
+.rsz{position:fixed;z-index:9999;-webkit-app-region:no-drag}
+#rsz-n{top:0;left:6px;right:6px;height:5px;cursor:n-resize}
+#rsz-s{bottom:0;left:6px;right:6px;height:5px;cursor:s-resize}
+#rsz-e{right:0;top:6px;bottom:6px;width:5px;cursor:e-resize}
+#rsz-w{left:0;top:6px;bottom:6px;width:5px;cursor:w-resize}
+#rsz-nw{top:0;left:0;width:8px;height:8px;cursor:nw-resize}
+#rsz-ne{top:0;right:0;width:8px;height:8px;cursor:ne-resize}
+#rsz-sw{bottom:0;left:0;width:8px;height:8px;cursor:sw-resize}
+#rsz-se{bottom:0;right:0;width:8px;height:8px;cursor:se-resize}
 </style>
 </head>
 <body data-theme="__THEME__">
+<div id="rsz-n" class="rsz"></div><div id="rsz-s" class="rsz"></div>
+<div id="rsz-e" class="rsz"></div><div id="rsz-w" class="rsz"></div>
+<div id="rsz-nw" class="rsz"></div><div id="rsz-ne" class="rsz"></div>
+<div id="rsz-sw" class="rsz"></div><div id="rsz-se" class="rsz"></div>
 <div id="controls">
   <button class="ctrl-btn" id="btn-gear" title="Settings">&#9881;</button>
   <button class="ctrl-btn" id="btn-close" title="Close">&#10005;</button>
@@ -248,7 +270,10 @@ function closeMenu() { ctxMenu.hidden = true; }
 
 document.addEventListener('contextmenu', e => { e.preventDefault(); buildMenu(e.clientX, e.clientY); });
 document.addEventListener('click', e => { if (!ctxMenu.contains(e.target)) closeMenu(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeMenu();
+  if (e.key === 'F11') { e.preventDefault(); pywebview.api.toggle_fullscreen(); }
+});
 
 document.getElementById('btn-gear').addEventListener('click', e => {
   e.stopPropagation();
@@ -256,9 +281,37 @@ document.getElementById('btn-gear').addEventListener('click', e => {
   buildMenu(r.left, r.bottom + 4);
 });
 
-document.getElementById('btn-close').addEventListener('click', () => {
+document.getElementById('btn-close').addEventListener('click', async () => {
+  await pywebview.api.save_config({
+    theme: currentTheme, preset: currentPreset,
+    window: {width: window.outerWidth, height: window.outerHeight,
+             x: window.screenX, y: window.screenY}
+  });
   pywebview.api.close_window();
 });
+
+// Resize handles
+let rsz = null, rsz0 = null;
+document.querySelectorAll('.rsz').forEach(el => {
+  el.addEventListener('mousedown', e => {
+    e.preventDefault();
+    rsz = el.id.replace('rsz-', '');
+    rsz0 = {mx: e.screenX, my: e.screenY,
+             w: window.outerWidth, h: window.outerHeight,
+             wx: window.screenX, wy: window.screenY};
+  });
+});
+window.addEventListener('mousemove', e => {
+  if (!rsz) return;
+  const dx = e.screenX - rsz0.mx, dy = e.screenY - rsz0.my;
+  let w = rsz0.w, h = rsz0.h, x = rsz0.wx, y = rsz0.wy;
+  if (rsz.includes('e')) w = Math.max(400, rsz0.w + dx);
+  if (rsz.includes('s')) h = Math.max(300, rsz0.h + dy);
+  if (rsz.includes('w')) { w = Math.max(400, rsz0.w - dx); x = rsz0.wx + dx; }
+  if (rsz.includes('n')) { h = Math.max(300, rsz0.h - dy); y = rsz0.wy + dy; }
+  pywebview.api.set_window_geometry(Math.round(w), Math.round(h), Math.round(x), Math.round(y));
+});
+window.addEventListener('mouseup', () => { rsz = null; });
 
 const md = markdownit({
   html: false,
