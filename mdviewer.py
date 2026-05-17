@@ -74,26 +74,101 @@ def clamp_position(x, y, width: int, height: int):
     return x, y
 
 
+class _RECT(ctypes.Structure):
+    _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long),
+                ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
+
+
+class _POINT(ctypes.Structure):
+    _fields_ = [('x', ctypes.c_long), ('y', ctypes.c_long)]
+
+
+def _find_hwnd(title: str):
+    return ctypes.windll.user32.FindWindowW(None, title) or None
+
+
+def _window_rect(hwnd):
+    r = _RECT()
+    if hwnd and ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r)):
+        return r.left, r.top, r.right - r.left, r.bottom - r.top
+    return None
+
+
+def _cursor_pos():
+    p = _POINT()
+    if ctypes.windll.user32.GetCursorPos(ctypes.byref(p)):
+        return p.x, p.y
+    return None
+
+
 class Api:
-    def __init__(self, md_path: str):
+    def __init__(self, md_path: str, title: str):
         self._md_path = md_path
+        self._title = title
         self.window = None  # set after webview.create_window
+        self._hwnd = None
+        self._rsz = None
+
+    def _ensure_hwnd(self):
+        if not self._hwnd:
+            self._hwnd = _find_hwnd(self._title)
+        return self._hwnd
 
     def get_file(self) -> str:
         with open(self._md_path, 'r', encoding='utf-8') as f:
             return f.read()
 
     def save_config(self, data: dict) -> None:
-        save_config_file(data)
+        current = load_config()
+        for k in ('theme', 'preset'):
+            if k in data:
+                current[k] = data[k]
+        rect = _window_rect(self._ensure_hwnd())
+        if rect:
+            x, y, w, h = rect
+            current['window'] = {'width': w, 'height': h, 'x': x, 'y': y}
+        save_config_file(current)
 
     def close_window(self) -> None:
         if self.window:
             self.window.destroy()
 
-    def set_window_geometry(self, width: int, height: int, x: int, y: int) -> None:
-        if self.window:
-            self.window.resize(width, height)
-            self.window.move(x, y)
+    def resize_begin(self, edge: str) -> None:
+        rect = _window_rect(self._ensure_hwnd())
+        cursor = _cursor_pos()
+        if rect and cursor:
+            self._rsz = {
+                'edge': edge,
+                'x': rect[0], 'y': rect[1], 'w': rect[2], 'h': rect[3],
+                'mx': cursor[0], 'my': cursor[1],
+            }
+
+    def resize_drag(self) -> None:
+        if not self._rsz or not self.window:
+            return
+        cursor = _cursor_pos()
+        if not cursor:
+            return
+        dx = cursor[0] - self._rsz['mx']
+        dy = cursor[1] - self._rsz['my']
+        edge = self._rsz['edge']
+        x0, y0, w0, h0 = self._rsz['x'], self._rsz['y'], self._rsz['w'], self._rsz['h']
+        x, y, w, h = x0, y0, w0, h0
+        if 'e' in edge:
+            w = max(400, w0 + dx)
+        if 's' in edge:
+            h = max(300, h0 + dy)
+        if 'w' in edge:
+            w = max(400, w0 - dx)
+            x = x0 + (w0 - w)
+        if 'n' in edge:
+            h = max(300, h0 - dy)
+            y = y0 + (h0 - h)
+        self.window.resize(w, h)
+        self.window.move(x, y)
+
+    def resize_end(self) -> None:
+        self._rsz = None
 
     def toggle_fullscreen(self) -> None:
         if self.window:
@@ -222,6 +297,7 @@ const ctxMenu   = document.getElementById('ctx-menu');
 function setTheme(t) {
   currentTheme = t;
   document.body.dataset.theme = t;
+  persistSettings();
 }
 
 function setPreset(key) {
@@ -231,6 +307,13 @@ function setPreset(key) {
     el.textContent = (el.dataset.key === key ? '\\u2713  ' : '    ') + el.dataset.label;
     el.classList.toggle('active', el.dataset.key === key);
   });
+  persistSettings();
+}
+
+function persistSettings() {
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.save_config) {
+    pywebview.api.save_config({theme: currentTheme, preset: currentPreset});
+  }
 }
 
 function buildMenu(x, y) {
@@ -281,37 +364,25 @@ document.getElementById('btn-gear').addEventListener('click', e => {
   buildMenu(r.left, r.bottom + 4);
 });
 
-document.getElementById('btn-close').addEventListener('click', async () => {
-  await pywebview.api.save_config({
-    theme: currentTheme, preset: currentPreset,
-    window: {width: window.outerWidth, height: window.outerHeight,
-             x: window.screenX, y: window.screenY}
-  });
+document.getElementById('btn-close').addEventListener('click', () => {
   pywebview.api.close_window();
 });
 
-// Resize handles
-let rsz = null, rsz0 = null;
+// Resize handles — Python does the geometry math via Win32 GetCursorPos/GetWindowRect
+let rsz = null;
 document.querySelectorAll('.rsz').forEach(el => {
   el.addEventListener('mousedown', e => {
     e.preventDefault();
     rsz = el.id.replace('rsz-', '');
-    rsz0 = {mx: e.screenX, my: e.screenY,
-             w: window.outerWidth, h: window.outerHeight,
-             wx: window.screenX, wy: window.screenY};
+    pywebview.api.resize_begin(rsz);
   });
 });
-window.addEventListener('mousemove', e => {
-  if (!rsz) return;
-  const dx = e.screenX - rsz0.mx, dy = e.screenY - rsz0.my;
-  let w = rsz0.w, h = rsz0.h, x = rsz0.wx, y = rsz0.wy;
-  if (rsz.includes('e')) w = Math.max(400, rsz0.w + dx);
-  if (rsz.includes('s')) h = Math.max(300, rsz0.h + dy);
-  if (rsz.includes('w')) { w = Math.max(400, rsz0.w - dx); x = rsz0.wx + dx; }
-  if (rsz.includes('n')) { h = Math.max(300, rsz0.h - dy); y = rsz0.wy + dy; }
-  pywebview.api.set_window_geometry(Math.round(w), Math.round(h), Math.round(x), Math.round(y));
+window.addEventListener('mousemove', () => {
+  if (rsz) pywebview.api.resize_drag();
 });
-window.addEventListener('mouseup', () => { rsz = null; });
+window.addEventListener('mouseup', () => {
+  if (rsz) { pywebview.api.resize_end(); rsz = null; }
+});
 
 const md = markdownit({
   html: false,
@@ -343,7 +414,11 @@ async function init() {
   }
 }
 
-window.addEventListener('pywebviewready', init);
+if (window.pywebview && window.pywebview.api) {
+  init();
+} else {
+  window.addEventListener('pywebviewready', init, {once: true});
+}
 </script>
 </body>
 </html>"""
@@ -385,9 +460,10 @@ def main() -> None:
     win    = config['window']
     x, y  = clamp_position(win.get('x'), win.get('y'), win['width'], win['height'])
 
-    api    = Api(path)
+    title = os.path.basename(path)
+    api   = Api(path, title)
     window = webview.create_window(
-        title=os.path.basename(path),
+        title=title,
         html=build_html(config),
         js_api=api,
         frameless=True,
@@ -402,13 +478,12 @@ def main() -> None:
 
     def on_closing():
         try:
-            state_json = window.evaluate_js(
-                'JSON.stringify({theme:currentTheme,preset:currentPreset,'
-                'width:window.outerWidth,height:window.outerHeight,'
-                'x:window.screenX,y:window.screenY})'
-            )
-            if state_json:
-                save_config_file(json.loads(state_json))
+            rect = _window_rect(api._ensure_hwnd())
+            if not rect:
+                return
+            current = load_config()
+            current['window'] = {'width': rect[2], 'height': rect[3], 'x': rect[0], 'y': rect[1]}
+            save_config_file(current)
         except Exception:
             pass
 
