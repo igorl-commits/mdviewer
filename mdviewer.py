@@ -332,6 +332,17 @@ tr:nth-child(even) td{background:rgba(128,128,128,.05)}
 img{max-width:100%;border-radius:4px}
 hr{border:none;border-top:1px solid var(--border);margin:1.5em 0}
 input[type="checkbox"]{margin-right:.4em;-webkit-app-region:no-drag}
+/* Floating thin scrollbars — overlay the content, no track, no borders */
+::-webkit-scrollbar{width:8px;height:8px;background:transparent}
+::-webkit-scrollbar-track{background:transparent;border:none}
+::-webkit-scrollbar-thumb{
+  background:rgba(128,128,128,.25);
+  border-radius:8px;
+  border:none;
+}
+::-webkit-scrollbar-thumb:hover{background:rgba(128,128,128,.5)}
+::-webkit-scrollbar-corner{background:transparent}
+html{scrollbar-width:thin;scrollbar-color:rgba(128,128,128,.25) transparent}
 </style>
 </head>
 <body data-theme="__THEME__">
