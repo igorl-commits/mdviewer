@@ -144,10 +144,11 @@ class Api:
             }
 
     def resize_drag(self) -> None:
-        if not self._rsz or not self.window:
+        if not self._rsz:
             return
+        hwnd = self._ensure_hwnd()
         cursor = _cursor_pos()
-        if not cursor:
+        if not hwnd or not cursor:
             return
         dx = cursor[0] - self._rsz['mx']
         dy = cursor[1] - self._rsz['my']
@@ -164,8 +165,9 @@ class Api:
         if 'n' in edge:
             h = max(300, h0 - dy)
             y = y0 + (h0 - h)
-        self.window.resize(w, h)
-        self.window.move(x, y)
+        # Single atomic SetWindowPos call — avoids the flicker of resize()+move()
+        # SWP_NOZORDER=0x0004 | SWP_NOACTIVATE=0x0010 | SWP_NOSENDCHANGING=0x0400
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, int(x), int(y), int(w), int(h), 0x0414)
 
     def resize_end(self) -> None:
         self._rsz = None
@@ -369,7 +371,8 @@ document.getElementById('btn-close').addEventListener('click', () => {
 });
 
 // Resize handles — Python does the geometry math via Win32 GetCursorPos/GetWindowRect
-let rsz = null;
+// JS throttles to one call per animation frame to avoid IPC backlog and flicker
+let rsz = null, rszPending = false;
 document.querySelectorAll('.rsz').forEach(el => {
   el.addEventListener('mousedown', e => {
     e.preventDefault();
@@ -378,7 +381,12 @@ document.querySelectorAll('.rsz').forEach(el => {
   });
 });
 window.addEventListener('mousemove', () => {
-  if (rsz) pywebview.api.resize_drag();
+  if (!rsz || rszPending) return;
+  rszPending = true;
+  requestAnimationFrame(() => {
+    rszPending = false;
+    if (rsz) pywebview.api.resize_drag();
+  });
 });
 window.addEventListener('mouseup', () => {
   if (rsz) { pywebview.api.resize_end(); rsz = null; }
