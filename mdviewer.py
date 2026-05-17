@@ -120,12 +120,27 @@ def _cursor_pos():
     return None
 
 
-# Hit-test codes for WM_NCLBUTTONDOWN — see winuser.h
-_HT = {
-    'caption': 2, 'w': 10, 'e': 11, 'n': 12, 'nw': 13,
-    'ne': 14, 's': 15, 'sw': 16, 'se': 17,
-}
-_WM_NCLBUTTONDOWN = 0x00A1
+# Win32 constants for restoring native resize on a frameless window
+_GWL_STYLE = -16
+_WS_THICKFRAME = 0x00040000
+# SWP_NOMOVE|NOSIZE|NOZORDER|NOACTIVATE|FRAMECHANGED — force a non-client redraw
+_SWP_FRAMECHANGED = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020
+
+
+def _enable_native_resize(hwnd):
+    """Re-add WS_THICKFRAME so the OS handles resize at window edges natively.
+
+    pywebview's frameless mode strips this style. Without it, DefWindowProc
+    ignores resize hit-tests, so the window is effectively locked in size.
+    """
+    if not hwnd:
+        return
+    user32 = ctypes.windll.user32
+    style = user32.GetWindowLongW(hwnd, _GWL_STYLE)
+    if not (style & _WS_THICKFRAME):
+        user32.SetWindowLongW(hwnd, _GWL_STYLE, style | _WS_THICKFRAME)
+        user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, _SWP_FRAMECHANGED)
+        _dlog('_enable_native_resize: WS_THICKFRAME added to hwnd=%s', hwnd)
 
 
 class Api:
@@ -164,25 +179,6 @@ class Api:
         _dlog('Api.close_window')
         if self._window:
             self._window.destroy()
-
-    def native_action(self, kind: str) -> None:
-        """Hand window drag/resize to the OS via WM_NCLBUTTONDOWN.
-
-        kind in {'caption', 'n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'}
-        OS enters its native modal loop — smooth, DPI-aware, multi-monitor-aware,
-        respects snap layouts. Single IPC call per gesture; no per-frame round trips.
-        """
-        ht = _HT.get(kind)
-        if ht is None:
-            return
-        hwnd = self._ensure_hwnd()
-        if not hwnd:
-            _dlog('native_action(%s) — no hwnd', kind)
-            return
-        _dlog('native_action(%s) ht=%d hwnd=%s', kind, ht, hwnd)
-        user32 = ctypes.windll.user32
-        user32.ReleaseCapture()
-        user32.SendMessageW(hwnd, _WM_NCLBUTTONDOWN, ht, 0)
 
     def toggle_fullscreen(self) -> None:
         _dlog('Api.toggle_fullscreen')
@@ -279,22 +275,9 @@ tr:nth-child(even) td{background:rgba(128,128,128,.05)}
 img{max-width:100%;border-radius:4px}
 hr{border:none;border-top:1px solid var(--border);margin:1.5em 0}
 input[type="checkbox"]{margin-right:.4em;-webkit-app-region:no-drag}
-.rsz{position:fixed;z-index:9999;-webkit-app-region:no-drag}
-#rsz-n{top:0;left:6px;right:6px;height:5px;cursor:n-resize}
-#rsz-s{bottom:0;left:6px;right:6px;height:5px;cursor:s-resize}
-#rsz-e{right:0;top:6px;bottom:6px;width:5px;cursor:e-resize}
-#rsz-w{left:0;top:6px;bottom:6px;width:5px;cursor:w-resize}
-#rsz-nw{top:0;left:0;width:8px;height:8px;cursor:nw-resize}
-#rsz-ne{top:0;right:0;width:8px;height:8px;cursor:ne-resize}
-#rsz-sw{bottom:0;left:0;width:8px;height:8px;cursor:sw-resize}
-#rsz-se{bottom:0;right:0;width:8px;height:8px;cursor:se-resize}
 </style>
 </head>
 <body data-theme="__THEME__">
-<div id="rsz-n" class="rsz"></div><div id="rsz-s" class="rsz"></div>
-<div id="rsz-e" class="rsz"></div><div id="rsz-w" class="rsz"></div>
-<div id="rsz-nw" class="rsz"></div><div id="rsz-ne" class="rsz"></div>
-<div id="rsz-sw" class="rsz"></div><div id="rsz-se" class="rsz"></div>
 <div id="controls">
   <button class="ctrl-btn" id="btn-gear" title="Settings">&#9881;</button>
   <button class="ctrl-btn" id="btn-close" title="Close">&#10005;</button>
@@ -386,26 +369,8 @@ document.getElementById('btn-gear').addEventListener('click', e => {
 document.getElementById('btn-close').addEventListener('click', () => {
   pywebview.api.close_window();
 });
-
-// Resize handles — hand off to native Windows resize loop (WM_NCLBUTTONDOWN).
-// One IPC per gesture; OS handles every frame.
-document.querySelectorAll('.rsz').forEach(el => {
-  el.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    pywebview.api.native_action(el.id.replace('rsz-', ''));
-  });
-});
-
-// Drag window by content area (replaces pywebview easy_drag, which had glitches).
-// Skip if mousedown target is interactive.
-document.getElementById('page').addEventListener('mousedown', e => {
-  if (e.button !== 0) return;
-  const tag = (e.target.tagName || '').toLowerCase();
-  if (['a','button','input','textarea','select','code','pre'].includes(tag)) return;
-  if (e.target.closest('a, button, pre, code, input, textarea, select, .ctrl-btn, #ctx-menu')) return;
-  pywebview.api.native_action('caption');
-});
+// Window movement: pywebview easy_drag handles drag via -webkit-app-region: drag.
+// Window resize: native Win32 (WS_THICKFRAME added on load, OS handles edges).
 
 const md = markdownit({
   html: false,
@@ -522,7 +487,7 @@ def main() -> None:
         html=build_html(config),
         js_api=api,
         frameless=True,
-        easy_drag=False,  # we use Win32 WM_NCLBUTTONDOWN(HTCAPTION) via Api.native_action
+        easy_drag=True,  # pywebview JS-side drag via -webkit-app-region:drag
         width=win['width'],
         height=win['height'],
         x=x,
@@ -530,6 +495,13 @@ def main() -> None:
         min_size=(400, 300),
     )
     api._window = window
+
+    def on_loaded():
+        # Restore WS_THICKFRAME so the OS handles resize at window edges.
+        # pywebview's frameless mode strips it; without it, the window is fixed-size.
+        _enable_native_resize(api._ensure_hwnd())
+
+    window.events.loaded += on_loaded
 
     def on_closing():
         try:
