@@ -232,6 +232,7 @@ class Api:
         self._title = title
         self._window = None  # set after webview.create_window
         self._hwnd = None
+        self._pre_fullscreen_rect = None  # last known good rect before entering fullscreen
 
     def _ensure_hwnd(self):
         if not self._hwnd:
@@ -258,14 +259,54 @@ class Api:
             current['window'] = {'width': w, 'height': h, 'x': x, 'y': y}
         save_config_file(current)
 
+    def _save_geometry(self) -> None:
+        """Persist the current (or pre-fullscreen) window position and size.
+
+        If the window is currently in fullscreen mode, we save the last known
+        non-fullscreen rect instead, so the user doesn't get a giant/maximized
+        window on the next launch.
+        """
+        try:
+            hwnd = self._ensure_hwnd()
+
+            is_fullscreen = False
+            if self._window is not None:
+                is_fullscreen = bool(getattr(self._window, 'fullscreen', False))
+
+            if is_fullscreen and self._pre_fullscreen_rect:
+                rect = self._pre_fullscreen_rect
+            else:
+                rect = _window_rect(hwnd)
+                # Remember this as the "normal" rect if we are not in fullscreen
+                if rect and not is_fullscreen:
+                    self._pre_fullscreen_rect = rect
+
+            if rect:
+                current = load_config()
+                current['window'] = {'width': rect[2], 'height': rect[3],
+                                     'x': rect[0], 'y': rect[1]}
+                save_config_file(current)
+                _dlog('_save_geometry: saved %s (was_fullscreen=%s)', current['window'], is_fullscreen)
+        except Exception as e:
+            _dlog('_save_geometry FAILED: %s', e)
+
     def close_window(self) -> None:
         _dlog('Api.close_window')
+        self._save_geometry()
         if self._window:
             self._window.destroy()
 
     def toggle_fullscreen(self) -> None:
         _dlog('Api.toggle_fullscreen')
         if self._window:
+            # Capture current size/position *before* we enter fullscreen
+            currently_full = bool(getattr(self._window, 'fullscreen', False))
+            if not currently_full:
+                rect = _window_rect(self._ensure_hwnd())
+                if rect:
+                    self._pre_fullscreen_rect = rect
+                    _dlog('toggle_fullscreen: captured pre-fullscreen rect %s', rect)
+
             self._window.toggle_fullscreen()
             # pywebview resets FormBorderStyle on toggle, stripping WS_THICKFRAME.
             # Re-apply so resize keeps working after returning from fullscreen.
@@ -323,6 +364,8 @@ class Api:
         except Exception:
             pass
 
+        self._save_geometry()   # remember the new snapped layout for next launch
+
     def js_log(self, msg: str) -> None:
         """JS calls this to forward console messages into the Python debug log."""
         _dlog('JS: %s', msg)
@@ -352,6 +395,7 @@ class Api:
         except Exception:
             pass
 
+        self._save_geometry()   # remember the measured content width layout
 
 def build_html(config: dict) -> str:
     presets_json      = json.dumps(HLJS_THEMES)
@@ -745,16 +789,8 @@ def main() -> None:
     window.events.loaded += on_loaded
 
     def on_closing():
-        try:
-            rect = _window_rect(api._ensure_hwnd())
-            if not rect:
-                return
-            current = load_config()
-            current['window'] = {'width': rect[2], 'height': rect[3], 'x': rect[0], 'y': rect[1]}
-            save_config_file(current)
-            _dlog('on_closing: saved window=%s', current['window'])
-        except Exception as e:
-            _dlog('on_closing FAILED: %s', e)
+        # Use the shared helper — it is defensive and logs.
+        api._save_geometry()
 
     window.events.closing += on_closing
     _dlog('main: calling webview.start(debug=%s)', _DEBUG)
