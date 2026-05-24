@@ -131,6 +131,18 @@ def save_config_file(data: dict) -> None:
         json.dump(data, f, indent=2)
 
 
+def _update_recent_files(path: str, max_entries: int = 8) -> None:
+    """Lightweight recent files tracking. Called on successful open."""
+    try:
+        cfg = load_config()
+        recent = [p for p in cfg.get('recent', []) if p != path]
+        recent.insert(0, path)
+        cfg['recent'] = recent[:max_entries]
+        save_config_file(cfg)
+    except Exception:
+        pass
+
+
 def clamp_position(x, y, width: int, height: int):
     """Return (x, y) clamped to visible screen; (None, None) if inputs are None."""
     if x is None or y is None:
@@ -402,10 +414,7 @@ class Api:
         Keeps the app lightweight (no new window, no temp files).
         """
         _dlog('Api.load_dropped_file: %s (%d bytes)', filename, len(content))
-        # We can't easily change the original file path, so we just re-render
-        # the markdown content in place. Title stays as the original file.
         try:
-            # Push the new content to JS for rendering
             if self._window:
                 self._window.evaluate_js(f'''
                     (function() {{
@@ -419,6 +428,37 @@ class Api:
                 ''')
         except Exception as e:
             _dlog('load_dropped_file render failed: %s', e)
+
+    def get_recent_files(self) -> list:
+        """Return the list of recently opened files (for the gear menu)."""
+        try:
+            cfg = load_config()
+            return cfg.get('recent', [])[:8]
+        except Exception:
+            return []
+
+    def open_recent(self, path: str) -> None:
+        """Open a file from the recent list (re-renders in place, lightweight)."""
+        _dlog('Api.open_recent: %s', path)
+        if not os.path.isfile(path):
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            _update_recent_files(path)
+            if self._window:
+                self._window.evaluate_js(f'''
+                    (function() {{
+                        const contentEl = document.getElementById('content');
+                        if (!contentEl) return;
+                        const raw = {json.dumps(content)};
+                        const rendered = md.render(raw);
+                        const frag = document.createRange().createContextualFragment(rendered);
+                        contentEl.replaceChildren(frag);
+                    }})();
+                ''')
+        except Exception as e:
+            _dlog('open_recent failed: %s', e)
 
     def snap_to_content_width(self, px: int) -> None:
         """Snap the window (centered, max height) to a width measured from the actual
@@ -636,6 +676,33 @@ function buildMenu(x, y) {
   ctxMenu.appendChild(themeItem);
 
   ctxMenu.appendChild(Object.assign(document.createElement('div'), {className: 'ctx-divider'}));
+
+  // Recent files (lightweight)
+  const recent = (window.pywebview && window.pywebview.api && window.pywebview.api.get_recent_files)
+    ? window.pywebview.api.get_recent_files() : [];
+  if (recent.length > 0) {
+    const recentLbl = document.createElement('div');
+    recentLbl.className = 'ctx-label';
+    recentLbl.textContent = 'Recent';
+    ctxMenu.appendChild(recentLbl);
+
+    recent.forEach(p => {
+      const item = document.createElement('div');
+      item.className = 'ctx-item';
+      const name = p.split(/[\\/]/).pop();
+      item.textContent = '  ' + name;
+      item.title = p;
+      item.onclick = () => {
+        closeMenu();
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.open_recent) {
+          pywebview.api.open_recent(p);
+        }
+      };
+      ctxMenu.appendChild(item);
+    });
+
+    ctxMenu.appendChild(Object.assign(document.createElement('div'), {className: 'ctx-divider'}));
+  }
 
   const lbl = document.createElement('div');
   lbl.className = 'ctx-label';
@@ -855,6 +922,8 @@ def main() -> None:
     config = load_config()
     win    = config['window']
     x, y  = clamp_position(win.get('x'), win.get('y'), win['width'], win['height'])
+
+    _update_recent_files(path)   # lightweight recent files tracking
 
     title = os.path.basename(path)
     _dlog('main: opening file=%s title=%s window=%s', path, title, win)
