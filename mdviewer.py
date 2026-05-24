@@ -302,6 +302,31 @@ class Api:
         """JS calls this to forward console messages into the Python debug log."""
         _dlog('JS: %s', msg)
 
+    def snap_to_content_width(self, px: int) -> None:
+        """Snap the window (centered, max height) to a width measured from the actual
+        rendered document content (tables, dark cards, wide boxes, etc.).
+
+        This is what the "Doc width, full height" button calls after lifting the
+        prose max-width temporarily so the dark boxes can report their true size.
+        """
+        _dlog('Api.snap_to_content_width px=%s', px)
+        hwnd = _find_hwnd(self._title) or self._ensure_hwnd()
+        work = _work_area_for(hwnd)
+        if not hwnd or not work:
+            return
+        wx, wy, ww, wh = work
+        ow, _ = _get_required_window_size_for_client(int(px), 100, hwnd)
+        rw = min(ow, ww)
+        x = wx + (ww - rw) // 2
+        y = wy
+        w = rw
+        h = wh  # max height
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, int(x), int(y), int(w), int(h), 0x0014)
+        try:
+            ctypes.windll.user32.UpdateWindow(hwnd)
+        except Exception:
+            pass
+
 
 def build_html(config: dict) -> str:
     presets_json      = json.dumps(HLJS_THEMES)
@@ -503,7 +528,37 @@ document.getElementById('btn-gear').addEventListener('click', e => {
 document.getElementById('btn-close').addEventListener('click', () => {
   pywebview.api.close_window();
 });
-document.getElementById('btn-tall').addEventListener('click',  () => pywebview.api.snap('reading'));
+
+// "Doc width, full height" — now measures the *real* rendered content (including
+// the dark reference boxes / cards / wide tables) instead of always using the
+// fixed prose column. This is why the previous 988px target was still too narrow
+// for 03-keyboard-shortcuts.md style docs.
+document.getElementById('btn-tall').addEventListener('click', () => {
+  const page = document.getElementById('page');
+  const origMax = page.style.maxWidth;
+
+  // Temporarily remove the prose cap so the dark boxes (and other wide blocks)
+  // can report their true min-content / scroll width.
+  page.style.maxWidth = 'none';
+  void page.offsetWidth; // force layout
+
+  const content = document.getElementById('content');
+  let needed = content.scrollWidth + 72; // generous margins + window frame
+
+  // Restore the original cap for prose documents; wide reference docs will have
+  // produced a large `needed` so they keep breathing room.
+  page.style.maxWidth = origMax || '860px';
+
+  // Never narrower than the comfortable prose target, never insane.
+  const target = Math.max(needed, 988);
+  const capped = Math.min(target, 1600);
+
+  // Also give the boxes the space we just allocated.
+  page.style.maxWidth = (capped - 64) + 'px';
+
+  pywebview.api.snap_to_content_width(Math.ceil(capped));
+});
+
 document.getElementById('btn-left').addEventListener('click',  () => pywebview.api.snap('left'));
 document.getElementById('btn-right').addEventListener('click', () => pywebview.api.snap('right'));
 document.getElementById('btn-full').addEventListener('click',  () => pywebview.api.toggle_fullscreen());
