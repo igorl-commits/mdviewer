@@ -122,6 +122,7 @@ def _cursor_pos():
 
 # Win32 constants for restoring native resize on a frameless window
 _GWL_STYLE = -16
+_GWL_EXSTYLE = -20
 _WS_THICKFRAME = 0x00040000
 # SWP_NOMOVE|NOSIZE|NOZORDER|NOACTIVATE|FRAMECHANGED — force a non-client redraw
 _SWP_FRAMECHANGED = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020
@@ -152,8 +153,36 @@ def _work_area_for(hwnd):
     return None
 
 
+def _get_required_window_size_for_client(client_w: int, client_h: int, hwnd: int):
+    """Return (outer_w, outer_h) such that the window's *client* area will be
+    at least (client_w, client_h) after the OS applies the current thickframe
+    and other non-client borders.
+
+    This is the key to making the "doc width" button actually deliver the
+    designed prose column width instead of a "much smaller" area.
+    """
+    if not hwnd:
+        return client_w, client_h
+    try:
+        user32 = ctypes.windll.user32
+        style = user32.GetWindowLongW(hwnd, _GWL_STYLE)
+        exstyle = user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+        rect = _RECT(0, 0, int(client_w), int(client_h))
+        user32.AdjustWindowRectEx(ctypes.byref(rect), style, False, exstyle)
+        ow = rect.right - rect.left
+        oh = rect.bottom - rect.top
+        return max(ow, client_w), max(oh, client_h)
+    except Exception:
+        return client_w, client_h
+
+
 # Window width that fits the prose column (CSS #page max-width 860 + 48*2 padding + scrollbar margin)
 _READING_WIDTH = 980
+
+# Target *client* width for the "doc width / reading" snap so that the #page
+# (860 px max-width + 48 px L/R padding + breathing room + scrollbar space)
+# is exactly what the designer intended, after the thickframe borders are subtracted.
+_TARGET_READING_CLIENT_WIDTH = 860 + 2 * 48 + 32  # 988 px client
 
 
 def _enable_native_resize(hwnd):
@@ -222,25 +251,52 @@ class Api:
 
         mode in {'left', 'right', 'reading'}
           left/right : half of the work area
-          reading    : column width that fits the prose, full work-area height, centered
+          reading    : "doc width" — the prose column exactly as designed (using
+                       AdjustWindowRectEx so thickframe does not eat the client area),
+                       centered on the monitor, with maximum (workarea) height.
         """
         _dlog('Api.snap mode=%s', mode)
-        hwnd = self._ensure_hwnd()
+
+        # Always prefer a *fresh* FindWindowW by title for geometry operations.
+        # The old forever-cached hwnd (from _ensure_hwnd) became stale after
+        # previous snaps, fullscreen toggles, or style changes → first click
+        # used wrong monitor/workarea (window "shifted left"), second click worked.
+        hwnd = _find_hwnd(self._title)
+        if not hwnd:
+            hwnd = self._ensure_hwnd()
         work = _work_area_for(hwnd)
         if not hwnd or not work:
             return
         wx, wy, ww, wh = work
+
         if mode == 'left':
             x, y, w, h = wx, wy, ww // 2, wh
         elif mode == 'right':
             x, y, w, h = wx + ww - ww // 2, wy, ww // 2, wh
         elif mode == 'reading':
-            rw = min(_READING_WIDTH, ww)
-            x, y, w, h = wx + (ww - rw) // 2, wy, rw, wh
+            # Compute the *outer* window width that will give us the exact
+            # intended client area for the #page prose column after borders.
+            # This is what makes the doc width button actually land on "doc width"
+            # instead of "much smaller".
+            cw = _TARGET_READING_CLIENT_WIDTH
+            ow, _ = _get_required_window_size_for_client(cw, 100, hwnd)
+            rw = min(ow, ww)
+            x = wx + (ww - rw) // 2
+            y = wy
+            w = rw
+            h = wh  # max height
         else:
             return
+
         # SWP_NOZORDER | SWP_NOACTIVATE
         ctypes.windll.user32.SetWindowPos(hwnd, 0, int(x), int(y), int(w), int(h), 0x0014)
+
+        # Help the window settle so a rapid next button click immediately sees
+        # the new position + correct monitor/workarea (fixes the "click twice" symptom).
+        try:
+            ctypes.windll.user32.UpdateWindow(hwnd)
+        except Exception:
+            pass
 
     def js_log(self, msg: str) -> None:
         """JS calls this to forward console messages into the Python debug log."""
