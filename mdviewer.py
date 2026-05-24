@@ -67,6 +67,21 @@ def _get_version() -> str:
 APP_VERSION = _get_version()
 
 
+def _is_windows_dark_theme() -> bool:
+    """Return True if Windows is currently using dark mode for apps (lightweight, no deps)."""
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        )
+        value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+        winreg.CloseKey(key)
+        return value == 0   # 0 = dark, 1 = light
+    except Exception:
+        return True         # safe default: dark
+
+
 DEFAULTS: dict = {
     'theme': 'dark',
     'preset': 'github-dark',
@@ -93,9 +108,14 @@ def load_config() -> dict:
         config.update({k: v for k, v in data.items() if k in DEFAULTS})
         config['window'] = dict(DEFAULTS['window'])
         config['window'].update(data.get('window', {}))
-        return config
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {k: (v.copy() if isinstance(v, dict) else v) for k, v in DEFAULTS.items()}
+        config = {k: (v.copy() if isinstance(v, dict) else v) for k, v in DEFAULTS.items()}
+
+    # Resolve "system" theme at load time (lightweight, respects Windows setting)
+    if config.get('theme') == 'system':
+        config['theme'] = 'dark' if _is_windows_dark_theme() else 'light'
+
+    return config
 
 
 def save_config_file(data: dict) -> None:
@@ -400,7 +420,9 @@ class Api:
 def build_html(config: dict) -> str:
     presets_json      = json.dumps(HLJS_THEMES)
     presets_list_json = json.dumps(PRESETS)
-    init_theme        = config['theme']
+    stored_theme      = config.get('theme', 'dark')
+    # effective theme is already resolved in load_config for "system"
+    init_theme        = stored_theme if stored_theme != 'system' else ('dark' if _is_windows_dark_theme() else 'light')
     init_preset       = config['preset']
     version           = APP_VERSION
 
@@ -528,7 +550,7 @@ html.scrolling,html:hover{scrollbar-color:rgba(128,128,128,.3) transparent}
 const THEMES = __PRESETS_JSON__;
 const PRESETS = __PRESETS_LIST_JSON__;
 
-let currentTheme  = '__THEME__';
+let currentTheme  = '__STORED_THEME__';   // can be 'dark', 'light', or 'system'
 let currentPreset = '__PRESET__';
 
 const hljsStyle = document.getElementById('hljs-theme');
@@ -536,7 +558,13 @@ const ctxMenu   = document.getElementById('ctx-menu');
 
 function setTheme(t) {
   currentTheme = t;
-  document.body.dataset.theme = t;
+  if (t === 'system') {
+    // Resolve immediately for display
+    const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.body.dataset.theme = isDark ? 'dark' : 'light';
+  } else {
+    document.body.dataset.theme = t;
+  }
   persistSettings();
 }
 
@@ -559,10 +587,22 @@ function persistSettings() {
 function buildMenu(x, y) {
   ctxMenu.replaceChildren();
 
+  // Theme row
   const themeItem = document.createElement('div');
   themeItem.className = 'ctx-item';
-  themeItem.textContent = currentTheme === 'dark' ? '\\u2600  Switch to Light' : '\\uD83C\\uDF19  Switch to Dark';
-  themeItem.onclick = () => { setTheme(currentTheme === 'dark' ? 'light' : 'dark'); closeMenu(); };
+  if (currentTheme === 'system') {
+    themeItem.textContent = '\\u2699\\uFE0F  Following system';
+  } else {
+    themeItem.textContent = currentTheme === 'dark' ? '\\u2600  Switch to Light' : '\\uD83C\\uDF19  Switch to Dark';
+  }
+  themeItem.onclick = () => {
+    if (currentTheme === 'system') {
+      setTheme('dark');
+    } else {
+      setTheme(currentTheme === 'dark' ? 'light' : 'system');
+    }
+    closeMenu();
+  };
   ctxMenu.appendChild(themeItem);
 
   ctxMenu.appendChild(Object.assign(document.createElement('div'), {className: 'ctx-divider'}));
@@ -729,9 +769,10 @@ setTimeout(() => {
         .replace('__HLJS_JS__',        HLJS_JS)
         .replace('__PRESETS_JSON__',      presets_json)
         .replace('__PRESETS_LIST_JSON__', presets_list_json)
-        .replace('__THEME__',   init_theme)
-        .replace('__PRESET__',  init_preset)
-        .replace('__VERSION__', version)
+        .replace('__THEME__',        init_theme)
+        .replace('__STORED_THEME__', stored_theme)
+        .replace('__PRESET__',       init_preset)
+        .replace('__VERSION__',      version)
     )
 
 
