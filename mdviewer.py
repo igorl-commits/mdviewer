@@ -42,6 +42,31 @@ HLJS_THEMES = {
 if 'CONFIG_PATH' not in globals():
     CONFIG_PATH = os.path.join(os.environ.get('APPDATA', ''), 'mdviewer', 'config.json')
 
+
+def _get_version() -> str:
+    """Return '0.<N>' where N is the number of commits in the repo.
+
+    This gives a simple, always-increasing dev version (e.g. 0.142).
+    Falls back to a static string when not running inside a git checkout
+    (packaged exe, etc.).
+    """
+    try:
+        import subprocess
+        root = os.path.dirname(os.path.abspath(__file__))
+        count = subprocess.check_output(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return f"0.{count}"
+    except Exception:
+        return "0.18"  # fallback for released / packaged builds — bump before each dist
+
+
+APP_VERSION = _get_version()
+
+
 DEFAULTS: dict = {
     'theme': 'dark',
     'preset': 'github-dark',
@@ -333,6 +358,7 @@ def build_html(config: dict) -> str:
     presets_list_json = json.dumps(PRESETS)
     init_theme        = config['theme']
     init_preset       = config['preset']
+    version           = APP_VERSION
 
     return (
         """<!DOCTYPE html>
@@ -368,6 +394,14 @@ body{
   opacity:0;transition:opacity .2s;z-index:200;-webkit-app-region:no-drag;
 }
 body:hover #controls{opacity:1}
+
+#version{
+  position:fixed;bottom:6px;left:10px;font-size:10px;color:var(--muted);
+  opacity:0;transition:opacity .2s;z-index:150;-webkit-app-region:no-drag;
+  pointer-events:none;
+}
+body:hover #version{opacity:0.6}
+
 .ctrl-btn{
   background:rgba(128,128,128,.15);border:none;border-radius:5px;
   color:var(--fg);cursor:pointer;font-size:14px;line-height:1;
@@ -443,6 +477,7 @@ html.scrolling,html:hover{scrollbar-color:rgba(128,128,128,.3) transparent}
 </div>
 <div id="page"><div id="content"></div></div>
 <div id="ctx-menu" hidden></div>
+<div id="version">v__VERSION__</div>
 <script>__MARKDOWN_IT_JS__</script>
 <script>__HLJS_JS__</script>
 <script>
@@ -652,6 +687,7 @@ setTimeout(() => {
         .replace('__PRESETS_LIST_JSON__', presets_list_json)
         .replace('__THEME__',   init_theme)
         .replace('__PRESET__',  init_preset)
+        .replace('__VERSION__', version)
     )
 
 
