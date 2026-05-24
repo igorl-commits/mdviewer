@@ -329,6 +329,24 @@ class Api:
         except Exception as e:
             _dlog('_save_geometry FAILED: %s', e)
 
+    def _refresh_resize_handles(self) -> None:
+        """Re-apply WS_THICKFRAME if it was lost.
+        Called from JS on 'focus' event (after Alt-Tab, task switch, etc.)
+        so the first click on the custom titlebar buttons works reliably
+        instead of being eaten by activation.
+        """
+        _enable_native_resize(self._ensure_hwnd())
+
+    def _force_activate(self) -> None:
+        """Explicitly activate the window. Helps deliver the first mouse click
+        after the window regains focus via Alt-Tab or similar.
+        """
+        hwnd = self._ensure_hwnd()
+        if hwnd:
+            user32 = ctypes.windll.user32
+            user32.SetForegroundWindow(hwnd)
+            user32.SetActiveWindow(hwnd)
+
     def close_window(self) -> None:
         _dlog('Api.close_window')
         self._save_geometry()
@@ -486,6 +504,36 @@ class Api:
             pass
 
         self._save_geometry()   # remember the measured content width layout
+
+    def snap_to_half(self) -> None:
+        """Snap to half the current monitor's work area width, full height, centered.
+        This is the new behavior for the "Doc width, full height" button.
+        Predictable "half screen reading pane" instead of dynamic content measurement.
+        """
+        _dlog('Api.snap_to_half')
+        hwnd = _find_hwnd(self._title) or self._ensure_hwnd()
+        work = _work_area_for(hwnd)
+        if not hwnd or not work:
+            return
+        wx, wy, ww, wh = work
+        rw = ww // 2
+        x = wx + (ww - rw) // 2
+        y = wy
+        w = rw
+        h = wh  # max height
+
+        # Use AdjustWindowRectEx so the final client area is as close as possible
+        # to the requested half (consistent with other reading snaps)
+        ow, _ = _get_required_window_size_for_client(rw, 100, hwnd)
+        final_w = min(ow, ww)
+
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, int(x), int(y), int(final_w), int(h), 0x0014)
+        try:
+            ctypes.windll.user32.UpdateWindow(hwnd)
+        except Exception:
+            pass
+
+        self._save_geometry()
 
 def build_html(config: dict) -> str:
     presets_json      = json.dumps(HLJS_THEMES)
@@ -948,34 +996,12 @@ document.getElementById('btn-close').addEventListener('click', () => {
   pywebview.api.close_window();
 });
 
-// "Doc width, full height" — now measures the *real* rendered content (including
-// the dark reference boxes / cards / wide tables) instead of always using the
-// fixed prose column. This is why the previous 988px target was still too narrow
-// for 03-keyboard-shortcuts.md style docs.
+// "Doc width, full height" button — always snaps to half the current monitor width
+// + full height, centered. Simple, predictable "comfortable reading pane".
+// (Previously did dynamic content measurement, which could become too narrow
+// on documents whose beginning legitimately has less wide content.)
 document.getElementById('btn-tall').addEventListener('click', () => {
-  const page = document.getElementById('page');
-  const origMax = page.style.maxWidth;
-
-  // Temporarily remove the prose cap so the dark boxes (and other wide blocks)
-  // can report their true min-content / scroll width.
-  page.style.maxWidth = 'none';
-  void page.offsetWidth; // force layout
-
-  const content = document.getElementById('content');
-  let needed = content.scrollWidth + 72; // generous margins + window frame
-
-  // Restore the original cap for prose documents; wide reference docs will have
-  // produced a large `needed` so they keep breathing room.
-  page.style.maxWidth = origMax || '860px';
-
-  // Never narrower than the comfortable prose target, never insane.
-  const target = Math.max(needed, 988);
-  const capped = Math.min(target, 1600);
-
-  // Also give the boxes the space we just allocated.
-  page.style.maxWidth = (capped - 64) + 'px';
-
-  pywebview.api.snap_to_content_width(Math.ceil(capped));
+  pywebview.api.snap_to_half();
 });
 
 document.getElementById('btn-left').addEventListener('click',  () => pywebview.api.snap('left'));
@@ -1056,6 +1082,26 @@ const _pollId = setInterval(() => {
   tryInit();
   if (_inited || _polls > 200) clearInterval(_pollId);
 }, 50);
+
+// === Fix for "first click after Alt-Tab does nothing + window shifts" ===
+// Re-apply thickframe style on focus regain (WebView2 / OS sometimes strips it on deactivation).
+window.addEventListener('focus', () => {
+  if (window.pywebview && window.pywebview.api && window.pywebview.api._refresh_resize_handles) {
+    pywebview.api._refresh_resize_handles();
+  }
+});
+
+// On mousedown in the button area, explicitly activate the window.
+// This helps the click actually reach the button on the activation click after Alt-Tab.
+const controls = document.getElementById('controls');
+if (controls) {
+  controls.addEventListener('mousedown', () => {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api._force_activate) {
+      pywebview.api._force_activate();
+    }
+  }, { capture: true });
+}
+
 setTimeout(() => {
   if (!_inited) {
     document.getElementById('content').textContent =
