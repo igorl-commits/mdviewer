@@ -40,7 +40,14 @@ HLJS_THEMES = {
 # -- END ASSET BUNDLE -----------------------------------------------
 
 if 'CONFIG_PATH' not in globals():
-    CONFIG_PATH = os.path.join(os.environ.get('APPDATA', ''), 'mdviewer', 'config.json')
+    # Portable mode: if config.json lives next to the exe/script, use it.
+    # This is the only change needed for fully portable usage.
+    exe_dir = os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, 'frozen', False) else __file__))
+    portable_config = os.path.join(exe_dir, 'config.json')
+    if os.path.isfile(portable_config):
+        CONFIG_PATH = portable_config
+    else:
+        CONFIG_PATH = os.path.join(os.environ.get('APPDATA', ''), 'mdviewer', 'config.json')
 
 
 def _get_version() -> str:
