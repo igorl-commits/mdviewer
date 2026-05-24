@@ -390,6 +390,29 @@ class Api:
         """JS calls this to forward console messages into the Python debug log."""
         _dlog('JS: %s', msg)
 
+    def load_dropped_file(self, filename: str, content: str) -> None:
+        """Replace the current view with the content of a dropped .md file.
+        Keeps the app lightweight (no new window, no temp files).
+        """
+        _dlog('Api.load_dropped_file: %s (%d bytes)', filename, len(content))
+        # We can't easily change the original file path, so we just re-render
+        # the markdown content in place. Title stays as the original file.
+        try:
+            # Push the new content to JS for rendering
+            if self._window:
+                self._window.evaluate_js(f'''
+                    (function() {{
+                        const contentEl = document.getElementById('content');
+                        if (!contentEl) return;
+                        const raw = {json.dumps(content)};
+                        const rendered = md.render(raw);
+                        const frag = document.createRange().createContextualFragment(rendered);
+                        contentEl.replaceChildren(frag);
+                    }})();
+                ''')
+        except Exception as e:
+            _dlog('load_dropped_file render failed: %s', e)
+
     def snap_to_content_width(self, px: int) -> None:
         """Snap the window (centered, max height) to a width measured from the actual
         rendered document content (tables, dark cards, wide boxes, etc.).
@@ -636,6 +659,27 @@ document.addEventListener('click', e => { if (!ctxMenu.contains(e.target)) close
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeMenu();
   if (e.key === 'F11') { e.preventDefault(); pywebview.api.toggle_fullscreen(); }
+});
+
+// Lightweight drag & drop support for .md files
+document.addEventListener('dragover', e => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.md') && !file.name.toLowerCase().endsWith('.markdown')) {
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.load_dropped_file) {
+      pywebview.api.load_dropped_file(file.name, reader.result);
+    }
+  };
+  reader.readAsText(file);
 });
 
 document.getElementById('btn-gear').addEventListener('click', e => {
