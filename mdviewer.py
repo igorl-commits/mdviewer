@@ -549,6 +549,18 @@ body:hover #version{opacity:0.6}
   box-shadow: 0 10px 40px rgba(0,0,0,0.6);
 }
 
+/* Search highlight */
+mark.search-hit {
+  background: #f9d71c;
+  color: #222;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+mark.search-current {
+  background: #f77d05;
+  color: white;
+}
+
 .ctrl-btn{
   background:rgba(128,128,128,.15);border:none;border-radius:5px;
   color:var(--fg);cursor:pointer;font-size:14px;line-height:1;
@@ -626,6 +638,15 @@ html.scrolling,html:hover{scrollbar-color:rgba(128,128,128,.3) transparent}
 <div id="ctx-menu" hidden></div>
 <div id="version">v__VERSION__</div>
 <div id="img-overlay"><img alt=""></div>
+
+<!-- Lightweight in-document search -->
+<div id="search-bar" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:1000;background:var(--menu-bg);border:1px solid var(--menu-border);border-radius:6px;padding:4px 8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);font-size:13px;">
+  <input id="search-input" placeholder="Search..." style="background:transparent;border:none;outline:none;color:var(--menu-fg);width:220px;">
+  <span id="search-count" style="margin:0 6px;color:var(--muted);font-size:11px;"></span>
+  <button id="search-prev" style="background:none;border:none;color:var(--menu-fg);cursor:pointer;">↑</button>
+  <button id="search-next" style="background:none;border:none;color:var(--menu-fg);cursor:pointer;">↓</button>
+  <button id="search-close" style="background:none;border:none;color:var(--muted);cursor:pointer;margin-left:4px;">✕</button>
+</div>
 <script>__MARKDOWN_IT_JS__</script>
 <script>__HLJS_JS__</script>
 <script>
@@ -767,6 +788,136 @@ document.addEventListener('drop', e => {
   };
   reader.readAsText(file);
 });
+
+// === Lightweight in-document search (Ctrl+F) ===
+(function() {
+  const bar = document.getElementById('search-bar');
+  const input = document.getElementById('search-input');
+  const countEl = document.getElementById('search-count');
+  const btnPrev = document.getElementById('search-prev');
+  const btnNext = document.getElementById('search-next');
+  const btnClose = document.getElementById('search-close');
+
+  if (!bar || !input) return;
+
+  let matches = [];
+  let currentIndex = -1;
+
+  function clearHighlights() {
+    document.querySelectorAll('mark.search-hit, mark.search-current').forEach(m => {
+      const parent = m.parentNode;
+      parent.replaceChild(document.createTextNode(m.textContent), m);
+      parent.normalize();
+    });
+    matches = [];
+    currentIndex = -1;
+    if (countEl) countEl.textContent = '';
+  }
+
+  function doSearch() {
+    clearHighlights();
+    const term = input.value.trim();
+    if (!term) return;
+
+    const walker = document.createTreeWalker(
+      document.getElementById('content'),
+      NodeFilter.SHOW_TEXT,
+      null
+    );
+
+    const found = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = node.nodeValue;
+      const lower = text.toLowerCase();
+      let pos = 0;
+      while ((pos = lower.indexOf(term.toLowerCase(), pos)) !== -1) {
+        found.push({ node, start: pos, length: term.length });
+        pos += term.length;
+      }
+    }
+
+    // Wrap matches
+    found.reverse().forEach(hit => {
+      const { node, start, length } = hit;
+      const before = node.nodeValue.slice(0, start);
+      const match = node.nodeValue.slice(start, start + length);
+      const after = node.nodeValue.slice(start + length);
+
+      const mark = document.createElement('mark');
+      mark.className = 'search-hit';
+      mark.textContent = match;
+
+      const frag = document.createDocumentFragment();
+      if (before) frag.appendChild(document.createTextNode(before));
+      frag.appendChild(mark);
+      if (after) frag.appendChild(document.createTextNode(after));
+
+      node.parentNode.replaceChild(frag, node);
+    });
+
+    matches = Array.from(document.querySelectorAll('mark.search-hit'));
+    currentIndex = matches.length ? 0 : -1;
+    updateCurrent();
+  }
+
+  function updateCurrent() {
+    matches.forEach((m, i) => m.classList.toggle('search-current', i === currentIndex));
+    if (countEl) {
+      countEl.textContent = matches.length ? `${currentIndex + 1}/${matches.length}` : '';
+    }
+    if (currentIndex >= 0) {
+      matches[currentIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+
+  function next() {
+    if (!matches.length) return;
+    currentIndex = (currentIndex + 1) % matches.length;
+    updateCurrent();
+  }
+  function prev() {
+    if (!matches.length) return;
+    currentIndex = (currentIndex - 1 + matches.length) % matches.length;
+    updateCurrent();
+  }
+
+  function closeSearch() {
+    bar.style.display = 'none';
+    clearHighlights();
+    input.value = '';
+  }
+
+  // Keyboard trigger
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      bar.style.display = 'block';
+      input.focus();
+      input.select();
+    }
+    if (e.key === 'Escape' && bar.style.display !== 'none') {
+      closeSearch();
+    }
+    if (e.key === 'Enter' && document.activeElement === input) {
+      e.preventDefault();
+      if (matches.length === 0) doSearch();
+      else next();
+    }
+  });
+
+  input.addEventListener('input', () => {
+    if (input.value.trim().length >= 2) {
+      doSearch();
+    } else {
+      clearHighlights();
+    }
+  });
+
+  btnNext && btnNext.addEventListener('click', next);
+  btnPrev && btnPrev.addEventListener('click', prev);
+  btnClose && btnClose.addEventListener('click', closeSearch);
+})();
 
 // Simple image lightbox (click any rendered image to enlarge)
 const imgOverlay = document.getElementById('img-overlay');
