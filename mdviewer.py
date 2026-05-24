@@ -1124,6 +1124,41 @@ def main() -> None:
     )
     api._window = window
 
+    # Lightweight live reload using stdlib polling (no extra deps)
+    def _start_file_watcher(api_instance, file_path, interval=1.2):
+        import threading, time, os
+        last_mtime = os.path.getmtime(file_path)
+
+        def watcher():
+            nonlocal last_mtime
+            while True:
+                time.sleep(interval)
+                try:
+                    mtime = os.path.getmtime(file_path)
+                    if mtime != last_mtime:
+                        last_mtime = mtime
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            new_content = f.read()
+                        if api_instance._window:
+                            api_instance._window.evaluate_js(f'''
+                                (function() {{
+                                    const contentEl = document.getElementById('content');
+                                    if (!contentEl) return;
+                                    const raw = {json.dumps(new_content)};
+                                    const rendered = md.render(raw);
+                                    const frag = document.createRange().createContextualFragment(rendered);
+                                    contentEl.replaceChildren(frag);
+                                }})();
+                            ''')
+                        _dlog('File watcher: reloaded %s', file_path)
+                except Exception as e:
+                    _dlog('File watcher error: %s', e)
+
+        t = threading.Thread(target=watcher, daemon=True)
+        t.start()
+
+    _start_file_watcher(api, path)
+
     def on_loaded():
         # Restore WS_THICKFRAME so the OS handles resize at window edges.
         # pywebview's frameless mode strips it; without it, the window is fixed-size.
