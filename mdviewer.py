@@ -538,6 +538,17 @@ body:hover #controls{opacity:1}
 }
 body:hover #version{opacity:0.6}
 
+/* Lightweight image lightbox */
+#img-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  display: none; align-items: center; justify-content: center; z-index: 9999;
+  cursor: zoom-out;
+}
+#img-overlay img {
+  max-width: 95vw; max-height: 95vh; object-fit: contain;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+}
+
 .ctrl-btn{
   background:rgba(128,128,128,.15);border:none;border-radius:5px;
   color:var(--fg);cursor:pointer;font-size:14px;line-height:1;
@@ -614,6 +625,7 @@ html.scrolling,html:hover{scrollbar-color:rgba(128,128,128,.3) transparent}
 <div id="page"><div id="content"></div></div>
 <div id="ctx-menu" hidden></div>
 <div id="version">v__VERSION__</div>
+<div id="img-overlay"><img alt=""></div>
 <script>__MARKDOWN_IT_JS__</script>
 <script>__HLJS_JS__</script>
 <script>
@@ -754,6 +766,25 @@ document.addEventListener('drop', e => {
     }
   };
   reader.readAsText(file);
+});
+
+// Simple image lightbox (click any rendered image to enlarge)
+const imgOverlay = document.getElementById('img-overlay');
+const overlayImg = imgOverlay ? imgOverlay.querySelector('img') : null;
+
+document.addEventListener('click', e => {
+  if (e.target.tagName === 'IMG' && e.target.closest('#content') && overlayImg) {
+    overlayImg.src = e.target.src;
+    imgOverlay.style.display = 'flex';
+  }
+});
+if (imgOverlay) {
+  imgOverlay.addEventListener('click', () => { imgOverlay.style.display = 'none'; });
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && imgOverlay && imgOverlay.style.display === 'flex') {
+    imgOverlay.style.display = 'none';
+  }
 });
 
 document.getElementById('btn-gear').addEventListener('click', e => {
