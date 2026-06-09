@@ -72,7 +72,7 @@ def _get_version() -> str:
             return f"0.{count}"
         except Exception:
             pass
-    return "0.29"  # fallback for released / packaged builds — bump before each dist
+    return "0.31"  # fallback for released / packaged builds — bump before each dist
 
 
 APP_VERSION = _get_version()
