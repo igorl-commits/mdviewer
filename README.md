@@ -31,7 +31,7 @@ After `install.bat`, right-click any `.md` → Open with → MD Viewer.
 pip install pywebview pyinstaller pytest
 python fetch_assets.py        # download + embed JS/CSS into mdviewer.py (once)
 python mdviewer.py test.md    # run without building exe
-pytest tests/                 # 13 tests
+pytest tests/                 # 16 tests
 ```
 
 Debug log: `set MDVIEWER_DEBUG=1` before launching — writes to `%APPDATA%\mdviewer\debug.log`.
