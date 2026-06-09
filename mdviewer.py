@@ -57,18 +57,22 @@ def _get_version() -> str:
     Falls back to a static string when not running inside a git checkout
     (packaged exe, etc.).
     """
-    try:
-        import subprocess
-        root = os.path.dirname(os.path.abspath(__file__))
-        count = subprocess.check_output(
-            ["git", "rev-list", "--count", "HEAD"],
-            cwd=root,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        return f"0.{count}"
-    except Exception:
-        return "0.29"  # fallback for released / packaged builds — bump before each dist
+    # Packaged exe: no .git, and spawning git from a --noconsole app can flash
+    # a console window — skip straight to the fallback.
+    if not getattr(sys, 'frozen', False):
+        try:
+            import subprocess
+            root = os.path.dirname(os.path.abspath(__file__))
+            count = subprocess.check_output(
+                ["git", "rev-list", "--count", "HEAD"],
+                cwd=root,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+            return f"0.{count}"
+        except Exception:
+            pass
+    return "0.29"  # fallback for released / packaged builds — bump before each dist
 
 
 APP_VERSION = _get_version()
@@ -118,10 +122,9 @@ def load_config() -> dict:
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         config = {k: (v.copy() if isinstance(v, dict) else v) for k, v in DEFAULTS.items()}
 
-    # Resolve "system" theme at load time (lightweight, respects Windows setting)
-    if config.get('theme') == 'system':
-        config['theme'] = 'dark' if _is_windows_dark_theme() else 'light'
-
+    # NOTE: theme may be 'system' here — it is resolved to dark/light at display
+    # time (build_html / JS), never here. Resolving on load would make every
+    # config save (geometry, recent files) overwrite the 'follow system' choice.
     return config
 
 
@@ -144,14 +147,19 @@ def _update_recent_files(path: str, max_entries: int = 8) -> None:
 
 
 def clamp_position(x, y, width: int, height: int):
-    """Return (x, y) clamped to visible screen; (None, None) if inputs are None."""
+    """Return (x, y) clamped to the virtual screen (all monitors combined);
+    (None, None) if inputs are None. Using SM_*VIRTUALSCREEN instead of the
+    primary-monitor metrics keeps windows restored on secondary monitors."""
     if x is None or y is None:
         return None, None
     try:
-        sw = ctypes.windll.user32.GetSystemMetrics(0)
-        sh = ctypes.windll.user32.GetSystemMetrics(1)
-        x = max(0, min(int(x), sw - width))
-        y = max(0, min(int(y), sh - height))
+        user32 = ctypes.windll.user32
+        vx = user32.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+        vy = user32.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
+        vw = user32.GetSystemMetrics(78)  # SM_CXVIRTUALSCREEN
+        vh = user32.GetSystemMetrics(79)  # SM_CYVIRTUALSCREEN
+        x = max(vx, min(int(x), vx + vw - width))
+        y = max(vy, min(int(y), vy + vh - height))
     except Exception:
         return 0, 0
     return x, y
@@ -329,17 +337,19 @@ class Api:
         except Exception as e:
             _dlog('_save_geometry FAILED: %s', e)
 
-    def _refresh_resize_handles(self) -> None:
+    def refresh_resize_handles(self) -> None:
         """Re-apply WS_THICKFRAME if it was lost.
         Called from JS on 'focus' event (after Alt-Tab, task switch, etc.)
         so the first click on the custom titlebar buttons works reliably
         instead of being eaten by activation.
+        Must be public: pywebview never exposes underscore-prefixed methods to JS.
         """
         _enable_native_resize(self._ensure_hwnd())
 
-    def _force_activate(self) -> None:
+    def force_activate(self) -> None:
         """Explicitly activate the window. Helps deliver the first mouse click
         after the window regains focus via Alt-Tab or similar.
+        Must be public: pywebview never exposes underscore-prefixed methods to JS.
         """
         hwnd = self._ensure_hwnd()
         if hwnd:
@@ -432,8 +442,13 @@ class Api:
         Keeps the app lightweight (no new window, no temp files).
         """
         _dlog('Api.load_dropped_file: %s (%d bytes)', filename, len(content))
+        # Dropped content has no filesystem path — stop the live-reload watcher
+        # from re-rendering the previous file over it.
+        self._md_path = None
+        self._title = filename  # keep title-based hwnd lookup (snap) working
         try:
             if self._window:
+                self._window.set_title(filename)
                 self._window.evaluate_js(f'''
                     (function() {{
                         const contentEl = document.getElementById('content');
@@ -464,7 +479,11 @@ class Api:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
             _update_recent_files(path)
+            # Retarget live reload, title-based hwnd lookup, and get_file to the new file.
+            self._md_path = path
+            self._title = os.path.basename(path)
             if self._window:
+                self._window.set_title(self._title)
                 self._window.evaluate_js(f'''
                     (function() {{
                         const contentEl = document.getElementById('content');
@@ -517,15 +536,15 @@ class Api:
             return
         wx, wy, ww, wh = work
         rw = ww // 2
-        x = wx + (ww - rw) // 2
         y = wy
-        w = rw
         h = wh  # max height
 
         # Use AdjustWindowRectEx so the final client area is as close as possible
-        # to the requested half (consistent with other reading snaps)
+        # to the requested half (consistent with other reading snaps).
+        # Center using the final outer width, not the client width.
         ow, _ = _get_required_window_size_for_client(rw, 100, hwnd)
         final_w = min(ow, ww)
+        x = wx + (ww - final_w) // 2
 
         ctypes.windll.user32.SetWindowPos(hwnd, 0, int(x), int(y), int(final_w), int(h), 0x0014)
         try:
@@ -735,32 +754,32 @@ function persistSettings() {
   }
 }
 
-function buildMenu(x, y) {
+async function buildMenu(x, y) {
   ctxMenu.replaceChildren();
 
   // Theme row
+  // Theme cycles dark -> light -> system -> dark; label always names the *next* state.
   const themeItem = document.createElement('div');
   themeItem.className = 'ctx-item';
-  if (currentTheme === 'system') {
-    themeItem.textContent = '\\u2699\\uFE0F  Following system';
+  if (currentTheme === 'dark') {
+    themeItem.textContent = '\\u2600  Switch to Light';
+  } else if (currentTheme === 'light') {
+    themeItem.textContent = '\\u2699\\uFE0F  Follow System';
   } else {
-    themeItem.textContent = currentTheme === 'dark' ? '\\u2600  Switch to Light' : '\\uD83C\\uDF19  Switch to Dark';
+    themeItem.textContent = '\\uD83C\\uDF19  Switch to Dark';
   }
   themeItem.onclick = () => {
-    if (currentTheme === 'system') {
-      setTheme('dark');
-    } else {
-      setTheme(currentTheme === 'dark' ? 'light' : 'system');
-    }
+    const next = currentTheme === 'dark' ? 'light' : (currentTheme === 'light' ? 'system' : 'dark');
+    setTheme(next);
     closeMenu();
   };
   ctxMenu.appendChild(themeItem);
 
   ctxMenu.appendChild(Object.assign(document.createElement('div'), {className: 'ctx-divider'}));
 
-  // Recent files (lightweight)
+  // Recent files (lightweight). pywebview API calls return Promises — must await.
   const recent = (window.pywebview && window.pywebview.api && window.pywebview.api.get_recent_files)
-    ? window.pywebview.api.get_recent_files() : [];
+    ? await window.pywebview.api.get_recent_files() : [];
   if (recent.length > 0) {
     const recentLbl = document.createElement('div');
     recentLbl.className = 'ctx-label';
@@ -1086,8 +1105,8 @@ const _pollId = setInterval(() => {
 // === Fix for "first click after Alt-Tab does nothing + window shifts" ===
 // Re-apply thickframe style on focus regain (WebView2 / OS sometimes strips it on deactivation).
 window.addEventListener('focus', () => {
-  if (window.pywebview && window.pywebview.api && window.pywebview.api._refresh_resize_handles) {
-    pywebview.api._refresh_resize_handles();
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.refresh_resize_handles) {
+    pywebview.api.refresh_resize_handles();
   }
 });
 
@@ -1096,8 +1115,8 @@ window.addEventListener('focus', () => {
 const controls = document.getElementById('controls');
 if (controls) {
   controls.addEventListener('mousedown', () => {
-    if (window.pywebview && window.pywebview.api && window.pywebview.api._force_activate) {
-      pywebview.api._force_activate();
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.force_activate) {
+      pywebview.api.force_activate();
     }
   }, { capture: true });
 }
@@ -1170,19 +1189,33 @@ def main() -> None:
     )
     api._window = window
 
-    # Lightweight live reload using stdlib polling (no extra deps)
-    def _start_file_watcher(api_instance, file_path, interval=1.2):
+    # Lightweight live reload using stdlib polling (no extra deps).
+    # Follows api._md_path so it tracks the file currently displayed —
+    # open_recent retargets it, drag & drop (path=None) suspends it.
+    def _start_file_watcher(api_instance, interval=1.2):
         import threading, time, os
-        last_mtime = os.path.getmtime(file_path)
+        watched = {'path': api_instance._md_path, 'mtime': None}
+        try:
+            watched['mtime'] = os.path.getmtime(watched['path'])
+        except OSError:
+            pass
 
         def watcher():
-            nonlocal last_mtime
             while True:
                 time.sleep(interval)
+                file_path = api_instance._md_path
+                if not file_path:
+                    watched['path'] = None
+                    continue
                 try:
+                    if file_path != watched['path']:
+                        # Displayed file changed (open_recent) — rebase, don't reload.
+                        watched['path'] = file_path
+                        watched['mtime'] = os.path.getmtime(file_path)
+                        continue
                     mtime = os.path.getmtime(file_path)
-                    if mtime != last_mtime:
-                        last_mtime = mtime
+                    if mtime != watched['mtime']:
+                        watched['mtime'] = mtime
                         with open(file_path, 'r', encoding='utf-8') as f:
                             new_content = f.read()
                         if api_instance._window:
@@ -1203,7 +1236,7 @@ def main() -> None:
         t = threading.Thread(target=watcher, daemon=True)
         t.start()
 
-    _start_file_watcher(api, path)
+    _start_file_watcher(api)
 
     def on_loaded():
         # Restore WS_THICKFRAME so the OS handles resize at window edges.

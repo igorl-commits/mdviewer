@@ -42,6 +42,17 @@ class TestLoadConfig:
         assert cfg['window']['width'] == 1200
         assert cfg['window']['x'] == 100
 
+    def test_system_theme_survives_load(self, tmp_path):
+        """theme='system' must round-trip through load_config unresolved, otherwise
+        any config save (geometry, recent files) permanently overwrites the user's
+        'follow system' choice with a concrete dark/light value."""
+        p = str(tmp_path / 'config.json')
+        with open(p, 'w') as f:
+            json.dump({'theme': 'system', 'preset': 'nord'}, f)
+        with patch('mdviewer.CONFIG_PATH', p):
+            cfg = _reload().load_config()
+        assert cfg['theme'] == 'system'
+
     def test_missing_window_key_uses_defaults(self, tmp_path):
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
@@ -73,28 +84,45 @@ class TestSaveConfig:
 
 
 class TestClampPosition:
+    # clamp_position queries the *virtual screen* (all monitors combined):
+    # GetSystemMetrics(76/77/78/79) = SM_X/Y/CX/CYVIRTUALSCREEN, in that order.
+
     def test_none_inputs_return_none(self):
         import mdviewer
         assert mdviewer.clamp_position(None, None, 900, 700) == (None, None)
 
     def test_clamps_negative_to_zero(self):
         import mdviewer
-        with patch('ctypes.windll.user32.GetSystemMetrics', side_effect=[1920, 1080]):
+        with patch('ctypes.windll.user32.GetSystemMetrics', side_effect=[0, 0, 1920, 1080]):
             x, y = mdviewer.clamp_position(-200, -100, 900, 700)
         assert x == 0 and y == 0
 
     def test_clamps_beyond_screen_right(self):
         import mdviewer
-        with patch('ctypes.windll.user32.GetSystemMetrics', side_effect=[1920, 1080]):
+        with patch('ctypes.windll.user32.GetSystemMetrics', side_effect=[0, 0, 1920, 1080]):
             x, y = mdviewer.clamp_position(1500, 900, 900, 700)
         assert x == 1920 - 900
         assert y == 1080 - 700
 
     def test_valid_position_unchanged(self):
         import mdviewer
-        with patch('ctypes.windll.user32.GetSystemMetrics', side_effect=[1920, 1080]):
+        with patch('ctypes.windll.user32.GetSystemMetrics', side_effect=[0, 0, 1920, 1080]):
             x, y = mdviewer.clamp_position(100, 50, 900, 700)
         assert x == 100 and y == 50
+
+    def test_secondary_monitor_position_preserved(self):
+        """A window on a second monitor (right of primary) must not be pulled back."""
+        import mdviewer
+        with patch('ctypes.windll.user32.GetSystemMetrics', side_effect=[0, 0, 3840, 1080]):
+            x, y = mdviewer.clamp_position(2500, 100, 900, 700)
+        assert x == 2500 and y == 100
+
+    def test_monitor_left_of_primary_preserved(self):
+        """Virtual screen can start at negative coords (monitor left of primary)."""
+        import mdviewer
+        with patch('ctypes.windll.user32.GetSystemMetrics', side_effect=[-1920, 0, 3840, 1080]):
+            x, y = mdviewer.clamp_position(-1500, 100, 900, 700)
+        assert x == -1500 and y == 100
 
 
 class TestDocWidthButtonAndSnapFlakiness:

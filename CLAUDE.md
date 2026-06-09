@@ -8,7 +8,7 @@ Single-file Python markdown viewer for Windows 11. All app logic lives in `mdvie
 
 ```bash
 python mdviewer.py <file.md>   # run dev
-pytest tests/                  # 13 tests
+pytest tests/                  # 16 tests
 python fetch_assets.py         # re-embed JS/CSS (only needed after version bumps)
 build.bat                      # PyInstaller → dist/mdviewer.exe
 install.bat                    # register file association (HKCU, no admin)
@@ -32,6 +32,8 @@ pywebview's `get_functions()` (in `webview/util.py`) walks `dir(obj)` recursivel
 
 **Rule:** every attribute on `Api` that is not a callable method must start with `_`.  
 Current: `self._window`, `self._hwnd`, `self._title`, `self._md_path`.
+
+The flip side: pywebview **never exposes underscore-prefixed methods to JS** (same `startswith('_')` filter). Any method JS must call (e.g. `refresh_resize_handles`, `force_activate`) has to be public. And every pywebview API call from JS returns a **Promise** — `await` it; truthiness checks on the raw return value silently pass.
 
 ### 2. Never use `window.screenX/Y` or `window.outerWidth/Height` for geometry
 
