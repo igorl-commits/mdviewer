@@ -9,6 +9,7 @@ Single-file Python markdown viewer for Windows 11. All app logic lives in `mdvie
 ```bash
 python mdviewer.py <file.md>   # run dev
 pytest tests/                  # 16 tests
+node tests/test_theme_cycle.mjs  # theme-cycle JS logic (extracted from template)
 python fetch_assets.py         # re-embed JS/CSS (only needed after version bumps)
 build.bat                      # PyInstaller → dist/mdviewer.exe
 install.bat                    # register file association (HKCU, no admin)
@@ -95,11 +96,14 @@ Delete `%APPDATA%\mdviewer\config.json` to reset to defaults.
 ## Tests
 
 ```
-tests/test_config.py   13 tests covering:
-  - TestLoadConfig        (defaults, corrupt JSON, saved values, missing keys)
+tests/test_config.py        16 tests covering:
+  - TestLoadConfig        (defaults, corrupt JSON, saved values, missing keys, 'system' theme survives load)
   - TestSaveConfig        (creates dirs, overwrites)
-  - TestClampPosition     (None passthrough, negative, beyond-edge, valid)
+  - TestClampPosition     (None passthrough, negative, beyond-edge, valid, multi-monitor virtual screen)
   - TestDocWidthButtonAndSnapFlakiness  (centering math, fresh hwnd, AdjustWindowRectEx)
+tests/test_theme_cycle.mjs  node test: extracts effectiveTheme()/nextTheme() from the
+  JS template via THEME-CYCLE-LOGIC-START/END markers and verifies no theme click is
+  a visual no-op under either OS appearance. Don't rename those markers.
 ```
 
 Tests mock `ctypes.windll.user32` where needed. No real window required.
