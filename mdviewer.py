@@ -72,7 +72,7 @@ def _get_version() -> str:
             return f"0.{count}"
         except Exception:
             pass
-    return "0.31"  # fallback for released / packaged builds — bump before each dist
+    return "0.33"  # fallback for released / packaged builds — bump before each dist
 
 
 APP_VERSION = _get_version()
@@ -726,15 +726,28 @@ let currentPreset = '__PRESET__';
 const hljsStyle = document.getElementById('hljs-theme');
 const ctxMenu   = document.getElementById('ctx-menu');
 
+// THEME-CYCLE-LOGIC-START
+function effectiveTheme(t) {
+  if (t !== 'system') return t;
+  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return isDark ? 'dark' : 'light';
+}
+
+// Cycle dark -> light -> system -> dark, skipping any state that would look
+// identical to the current appearance — every click must visibly change the page.
+function nextTheme() {
+  const order = {dark: ['light', 'system'], light: ['system', 'dark'], system: ['dark', 'light']};
+  const cur = effectiveTheme(currentTheme);
+  for (const cand of (order[currentTheme] || ['dark', 'light'])) {
+    if (effectiveTheme(cand) !== cur) return cand;
+  }
+  return cur === 'dark' ? 'light' : 'dark';
+}
+// THEME-CYCLE-LOGIC-END
+
 function setTheme(t) {
   currentTheme = t;
-  if (t === 'system') {
-    // Resolve immediately for display
-    const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    document.body.dataset.theme = isDark ? 'dark' : 'light';
-  } else {
-    document.body.dataset.theme = t;
-  }
+  document.body.dataset.theme = effectiveTheme(t);
   persistSettings();
 }
 
@@ -758,19 +771,19 @@ async function buildMenu(x, y) {
   ctxMenu.replaceChildren();
 
   // Theme row
-  // Theme cycles dark -> light -> system -> dark; label always names the *next* state.
+  // Label names the *next* state from nextTheme(), which skips visual no-ops.
   const themeItem = document.createElement('div');
   themeItem.className = 'ctx-item';
-  if (currentTheme === 'dark') {
+  const nextT = nextTheme();
+  if (nextT === 'light') {
     themeItem.textContent = '\\u2600  Switch to Light';
-  } else if (currentTheme === 'light') {
+  } else if (nextT === 'system') {
     themeItem.textContent = '\\u2699\\uFE0F  Follow System';
   } else {
     themeItem.textContent = '\\uD83C\\uDF19  Switch to Dark';
   }
   themeItem.onclick = () => {
-    const next = currentTheme === 'dark' ? 'light' : (currentTheme === 'light' ? 'system' : 'dark');
-    setTheme(next);
+    setTheme(nextT);
     closeMenu();
   };
   ctxMenu.appendChild(themeItem);
