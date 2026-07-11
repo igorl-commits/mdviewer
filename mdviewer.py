@@ -104,6 +104,7 @@ DEFAULTS: dict = {
     'theme': 'dark',
     'preset': 'github-dark',
     'window': {'width': 900, 'height': 700, 'x': None, 'y': None},
+    'recent': [],
 }
 
 PRESETS: list = [
@@ -132,11 +133,14 @@ def load_config() -> dict:
     # NOTE: theme may be 'system' here — it is resolved to dark/light at display
     # time (build_html / JS), never here. Resolving on load would make every
     # config save (geometry, recent files) overwrite the 'follow system' choice.
+    config['recent'] = list(config.get('recent', []))
     return config
 
 
 def save_config_file(data: dict) -> None:
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    parent = os.path.dirname(CONFIG_PATH)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 

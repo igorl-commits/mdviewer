@@ -61,6 +61,16 @@ class TestLoadConfig:
             cfg = _reload().load_config()
         assert cfg['window']['width'] == 900
 
+    def test_recent_files_round_trip(self, tmp_path):
+        p = str(tmp_path / 'config.json')
+        saved = {'theme': 'dark', 'preset': 'github-dark',
+                 'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
+                 'recent': ['C:/docs/a.md', 'C:/docs/b.md']}
+        with open(p, 'w') as f: json.dump(saved, f)
+        with patch('mdviewer.CONFIG_PATH', p):
+            cfg = _reload().load_config()
+        assert cfg['recent'] == ['C:/docs/a.md', 'C:/docs/b.md']
+
 
 class TestSaveConfig:
     def test_creates_file_and_parent_dirs(self, tmp_path):
@@ -81,6 +91,33 @@ class TestSaveConfig:
                                         'window': {'width': 800, 'height': 600, 'x': 0, 'y': 0}})
         with open(p) as f:
             assert json.load(f)['theme'] == 'dark'
+
+    def test_save_config_preserves_recent(self, tmp_path):
+        p = str(tmp_path / 'config.json')
+        with open(p, 'w') as f:
+            json.dump({'theme': 'dark', 'preset': 'github-dark',
+                       'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
+                       'recent': ['C:/keep.md']}, f)
+        with patch('mdviewer.CONFIG_PATH', p):
+            m = _reload(); api = m.Api('x.md', 'x.md')
+            from unittest.mock import MagicMock
+            api._window = MagicMock(fullscreen=False, x=10, y=20, width=800, height=600)
+            api.save_config({'theme': 'light'})
+        with open(p) as f: saved = json.load(f)
+        assert saved['theme'] == 'light' and saved['recent'] == ['C:/keep.md']
+
+    def test_save_geometry_preserves_recent(self, tmp_path):
+        p = str(tmp_path / 'config.json')
+        with open(p, 'w') as f:
+            json.dump({'theme': 'dark', 'preset': 'github-dark',
+                       'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
+                       'recent': ['C:/keep.md']}, f)
+        with patch('mdviewer.CONFIG_PATH', p):
+            m = _reload(); api = m.Api('x.md', 'x.md')
+            from unittest.mock import MagicMock
+            api._window = MagicMock(fullscreen=False, x=100, y=50, width=900, height=700)
+            api._save_geometry()
+        with open(p) as f: assert json.load(f)['recent'] == ['C:/keep.md']
 
 
 class TestClampPosition:
