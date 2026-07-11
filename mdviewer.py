@@ -145,6 +145,19 @@ def save_config_file(data: dict) -> None:
         json.dump(data, f, indent=2)
 
 
+
+def _read_text_file(path: str) -> str:
+    """Read a text file with UTF-8 (incl. BOM) then Windows-1252 fallback."""
+    with open(path, 'rb') as f:
+        raw = f.read()
+    for enc in ('utf-8-sig', 'utf-8', 'cp1252'):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode('utf-8', errors='replace')
+
+
 def _update_recent_files(path: str, max_entries: int = 8) -> None:
     """Lightweight recent files tracking. Called on successful open."""
     try:
@@ -300,8 +313,9 @@ class Api:
 
     def get_file(self) -> str:
         _dlog('Api.get_file path=%s', self._md_path)
-        with open(self._md_path, 'r', encoding='utf-8') as f:
-            data = f.read()
+        if not self._md_path:
+            return ''
+        data = _read_text_file(self._md_path)
         _dlog('Api.get_file returned %d bytes', len(data))
         return data
 
