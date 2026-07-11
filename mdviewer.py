@@ -123,17 +123,20 @@ def load_config() -> dict:
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        config = {k: (v.copy() if isinstance(v, dict) else v) for k, v in DEFAULTS.items()}
+        config = {k: (v.copy() if isinstance(v, dict) else list(v) if isinstance(v, list) else v)
+                    for k, v in DEFAULTS.items()}
         config.update({k: v for k, v in data.items() if k in DEFAULTS})
         config['window'] = dict(DEFAULTS['window'])
         config['window'].update(data.get('window', {}))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        config = {k: (v.copy() if isinstance(v, dict) else v) for k, v in DEFAULTS.items()}
+        config = {k: (v.copy() if isinstance(v, dict) else list(v) if isinstance(v, list) else v)
+                    for k, v in DEFAULTS.items()}
+
+    config['recent'] = list(config.get('recent', []))
 
     # NOTE: theme may be 'system' here — it is resolved to dark/light at display
     # time (build_html / JS), never here. Resolving on load would make every
     # config save (geometry, recent files) overwrite the 'follow system' choice.
-    config['recent'] = list(config.get('recent', []))
     return config
 
 
@@ -145,17 +148,20 @@ def save_config_file(data: dict) -> None:
         json.dump(data, f, indent=2)
 
 
-
 def _read_text_file(path: str) -> str:
-    """Read a text file with UTF-8 (incl. BOM) then Windows-1252 fallback."""
-    with open(path, 'rb') as f:
-        raw = f.read()
+    """Read a text file: utf-8-sig → utf-8 → cp1252 fallback."""
+    last_err = None
     for enc in ('utf-8-sig', 'utf-8', 'cp1252'):
         try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode('utf-8', errors='replace')
+            with open(path, 'r', encoding=enc) as f:
+                return f.read()
+        except UnicodeDecodeError as e:
+            last_err = e
+        except OSError:
+            raise
+    if last_err:
+        raise last_err
+    raise OSError(f'cannot read {path}')
 
 
 def _update_recent_files(path: str, max_entries: int = 8) -> None:
@@ -272,13 +278,57 @@ def _get_required_window_size_for_client(client_w: int, client_h: int, hwnd: int
         return client_w, client_h
 
 
-# Window width that fits the prose column (CSS #page max-width 860 + 48*2 padding + scrollbar margin)
-_READING_WIDTH = 980
+# Reading-column layout in CSS logical pixels (#page is border-box).
+_PAGE_CONTENT_LOGICAL = 860
+_PAGE_HPAD_LOGICAL = 48
+_PAGE_MAX_LOGICAL = _PAGE_CONTENT_LOGICAL + 2 * _PAGE_HPAD_LOGICAL  # 956
+_SCROLLBAR_GUTTER_LOGICAL = 24
+_READING_SIDE_MARGIN_LOGICAL = 64
+_TARGET_READING_CLIENT_LOGICAL = (
+    _PAGE_MAX_LOGICAL + _SCROLLBAR_GUTTER_LOGICAL + 2 * _READING_SIDE_MARGIN_LOGICAL
+)  # 1108
 
-# Target *client* width for the "doc width / reading" snap so that the #page
-# (860 px max-width + 48 px L/R padding + breathing room + scrollbar space)
-# is exactly what the designer intended, after the thickframe borders are subtracted.
-_TARGET_READING_CLIENT_WIDTH = 860 + 2 * 48 + 32  # 988 px client
+
+def _hwnd_dpi_scale(hwnd) -> float:
+    """Physical/logical scale for hwnd (1.0 at 96 DPI)."""
+    if not hwnd:
+        return 1.0
+    try:
+        dpi = ctypes.windll.user32.GetDpiForWindow(hwnd)
+        return max(dpi / 96.0, 1.0)
+    except Exception:
+        return 1.0
+
+
+def _outer_logical_for_client_logical(client_w: int, client_h: int, hwnd: int):
+    """Return outer (frame) logical size for a target client logical area."""
+    scale = _hwnd_dpi_scale(hwnd)
+    phys_cw = int(round(client_w * scale))
+    phys_ch = int(round(client_h * scale))
+    phys_ow, phys_oh = _get_required_window_size_for_client(phys_cw, phys_ch, hwnd)
+    return int(round(phys_ow / scale)), int(round(phys_oh / scale))
+
+
+def _geometry_from_window(api) -> tuple | None:
+    """Logical-pixel window rect for config save/restore (pywebview, not GetWindowRect)."""
+    w = getattr(api, '_window', None)
+    if not w:
+        return None
+    try:
+        return int(w.x), int(w.y), int(w.width), int(w.height)
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _logical_work_area_for(hwnd):
+    """Work area of the monitor containing hwnd, converted to logical pixels."""
+    work = _work_area_for(hwnd)
+    if not work:
+        return None
+    scale = _hwnd_dpi_scale(hwnd)
+    wx, wy, ww, wh = work
+    return (int(round(wx / scale)), int(round(wy / scale)),
+            int(round(ww / scale)), int(round(wh / scale)))
 
 
 def _enable_native_resize(hwnd):
@@ -286,15 +336,35 @@ def _enable_native_resize(hwnd):
 
     pywebview's frameless mode strips this style. Without it, DefWindowProc
     ignores resize hit-tests, so the window is effectively locked in size.
+
+    Preserves the client-area screen origin when re-applying the frame so the
+    window does not jump left on the first click after focus regain.
     """
     if not hwnd:
         return
     user32 = ctypes.windll.user32
     style = user32.GetWindowLongW(hwnd, _GWL_STYLE)
-    if not (style & _WS_THICKFRAME):
-        user32.SetWindowLongW(hwnd, _GWL_STYLE, style | _WS_THICKFRAME)
-        user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, _SWP_FRAMECHANGED)
-        _dlog('_enable_native_resize: WS_THICKFRAME added to hwnd=%s', hwnd)
+    exstyle = user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+    new_style = style | _WS_THICKFRAME
+    if style != new_style:
+        user32.SetWindowLongW(hwnd, _GWL_STYLE, new_style)
+
+    client_pt = _POINT()
+    user32.ClientToScreen(hwnd, ctypes.byref(client_pt))
+    cr = _RECT()
+    user32.GetClientRect(hwnd, ctypes.byref(cr))
+    client_w = cr.right - cr.left
+    client_h = cr.bottom - cr.top
+    rect = _RECT(0, 0, client_w, client_h)
+    user32.AdjustWindowRectEx(ctypes.byref(rect), new_style, False, exstyle)
+    outer_x = client_pt.x + rect.left
+    outer_y = client_pt.y + rect.top
+    outer_w = rect.right - rect.left
+    outer_h = rect.bottom - rect.top
+    # SWP_NOZORDER | NOACTIVATE | FRAMECHANGED — explicit pos/size keeps client fixed
+    user32.SetWindowPos(hwnd, 0, outer_x, outer_y, outer_w, outer_h, 0x0004 | 0x0010 | 0x0020)
+    _dlog('_enable_native_resize: WS_THICKFRAME applied hwnd=%s client=%sx%s outer=%sx%s',
+          hwnd, client_w, client_h, outer_w, outer_h)
 
 
 class Api:
@@ -303,7 +373,9 @@ class Api:
         self._title = title
         self._window = None  # set after webview.create_window
         self._hwnd = None
-        self._pre_fullscreen_rect = None  # last known good rect before entering fullscreen
+        # Last known non-fullscreen rect in pywebview logical pixels (x, y, w, h).
+        self._pre_fullscreen_rect = None
+        self._geom_save_timer = None
 
     def _ensure_hwnd(self):
         if not self._hwnd:
@@ -325,11 +397,28 @@ class Api:
         for k in ('theme', 'preset'):
             if k in data:
                 current[k] = data[k]
-        rect = _window_rect(self._ensure_hwnd())
+        rect = _geometry_from_window(self)
         if rect:
             x, y, w, h = rect
             current['window'] = {'width': w, 'height': h, 'x': x, 'y': y}
         save_config_file(current)
+
+    def _schedule_save_geometry(self) -> None:
+        """Debounced geometry save for moved/resized events."""
+        import threading
+        if self._geom_save_timer is not None:
+            try:
+                self._geom_save_timer.cancel()
+            except Exception:
+                pass
+
+        def _fire():
+            self._geom_save_timer = None
+            self._save_geometry()
+
+        self._geom_save_timer = threading.Timer(0.35, _fire)
+        self._geom_save_timer.daemon = True
+        self._geom_save_timer.start()
 
     def _save_geometry(self) -> None:
         """Persist the current (or pre-fullscreen) window position and size.
@@ -339,8 +428,6 @@ class Api:
         window on the next launch.
         """
         try:
-            hwnd = self._ensure_hwnd()
-
             is_fullscreen = False
             if self._window is not None:
                 is_fullscreen = bool(getattr(self._window, 'fullscreen', False))
@@ -348,8 +435,7 @@ class Api:
             if is_fullscreen and self._pre_fullscreen_rect:
                 rect = self._pre_fullscreen_rect
             else:
-                rect = _window_rect(hwnd)
-                # Remember this as the "normal" rect if we are not in fullscreen
+                rect = _geometry_from_window(self)
                 if rect and not is_fullscreen:
                     self._pre_fullscreen_rect = rect
 
@@ -394,7 +480,7 @@ class Api:
             # Capture current size/position *before* we enter fullscreen
             currently_full = bool(getattr(self._window, 'fullscreen', False))
             if not currently_full:
-                rect = _window_rect(self._ensure_hwnd())
+                rect = _geometry_from_window(self)
                 if rect:
                     self._pre_fullscreen_rect = rect
                     _dlog('toggle_fullscreen: captured pre-fullscreen rect %s', rect)
@@ -432,17 +518,24 @@ class Api:
         elif mode == 'right':
             x, y, w, h = wx + ww - ww // 2, wy, ww // 2, wh
         elif mode == 'reading':
-            # Compute the *outer* window width that will give us the exact
-            # intended client area for the #page prose column after borders.
-            # This is what makes the doc width button actually land on "doc width"
-            # instead of "much smaller".
-            cw = _TARGET_READING_CLIENT_WIDTH
-            ow, _ = _get_required_window_size_for_client(cw, 100, hwnd)
-            rw = min(ow, ww)
-            x = wx + (ww - rw) // 2
-            y = wy
-            w = rw
-            h = wh  # max height
+            # DPI-aware doc-width snap via pywebview logical pixels.
+            work_log = _logical_work_area_for(hwnd)
+            if not work_log or not self._window:
+                return
+            lwx, lwy, lww, lwh = work_log
+            cw = _TARGET_READING_CLIENT_LOGICAL
+            ow, oh = _outer_logical_for_client_logical(cw, lwh, hwnd)
+            ow = min(ow, lww)
+            x = lwx + (lww - ow) // 2
+            y = lwy
+            self._window.move(x, y)
+            self._window.resize(ow, oh)
+            try:
+                ctypes.windll.user32.UpdateWindow(hwnd)
+            except Exception:
+                pass
+            self._save_geometry()
+            return
         else:
             return
 
@@ -501,89 +594,19 @@ class Api:
         if not os.path.isfile(path):
             return
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                content = f.read()
             _update_recent_files(path)
-            # Retarget live reload, title-based hwnd lookup, and get_file to the new file.
             self._md_path = path
             self._title = os.path.basename(path)
             if self._window:
                 self._window.set_title(self._title)
-                self._window.evaluate_js(f'''
-                    (function() {{
-                        const contentEl = document.getElementById('content');
-                        if (!contentEl) return;
-                        const raw = {json.dumps(content)};
-                        const rendered = md.render(raw);
-                        const frag = document.createRange().createContextualFragment(rendered);
-                        contentEl.replaceChildren(frag);
-                    }})();
-                ''')
+                self._window.evaluate_js('reloadFromDisk();')
         except Exception as e:
             _dlog('open_recent failed: %s', e)
-
-    def snap_to_content_width(self, px: int) -> None:
-        """Snap the window (centered, max height) to a width measured from the actual
-        rendered document content (tables, dark cards, wide boxes, etc.).
-
-        This is what the "Doc width, full height" button calls after lifting the
-        prose max-width temporarily so the dark boxes can report their true size.
-        """
-        _dlog('Api.snap_to_content_width px=%s', px)
-        hwnd = _find_hwnd(self._title) or self._ensure_hwnd()
-        work = _work_area_for(hwnd)
-        if not hwnd or not work:
-            return
-        wx, wy, ww, wh = work
-        ow, _ = _get_required_window_size_for_client(int(px), 100, hwnd)
-        rw = min(ow, ww)
-        x = wx + (ww - rw) // 2
-        y = wy
-        w = rw
-        h = wh  # max height
-        ctypes.windll.user32.SetWindowPos(hwnd, 0, int(x), int(y), int(w), int(h), 0x0014)
-        try:
-            ctypes.windll.user32.UpdateWindow(hwnd)
-        except Exception:
-            pass
-
-        self._save_geometry()   # remember the measured content width layout
-
-    def snap_to_half(self) -> None:
-        """Snap to half the current monitor's work area width, full height, centered.
-        This is the new behavior for the "Doc width, full height" button.
-        Predictable "half screen reading pane" instead of dynamic content measurement.
-        """
-        _dlog('Api.snap_to_half')
-        hwnd = _find_hwnd(self._title) or self._ensure_hwnd()
-        work = _work_area_for(hwnd)
-        if not hwnd or not work:
-            return
-        wx, wy, ww, wh = work
-        rw = ww // 2
-        y = wy
-        h = wh  # max height
-
-        # Use AdjustWindowRectEx so the final client area is as close as possible
-        # to the requested half (consistent with other reading snaps).
-        # Center using the final outer width, not the client width.
-        ow, _ = _get_required_window_size_for_client(rw, 100, hwnd)
-        final_w = min(ow, ww)
-        x = wx + (ww - final_w) // 2
-
-        ctypes.windll.user32.SetWindowPos(hwnd, 0, int(x), int(y), int(final_w), int(h), 0x0014)
-        try:
-            ctypes.windll.user32.UpdateWindow(hwnd)
-        except Exception:
-            pass
-
-        self._save_geometry()
 
 def build_html(config: dict) -> str:
     presets_json      = json.dumps(HLJS_THEMES)
     presets_list_json = json.dumps(PRESETS)
     stored_theme      = config.get('theme', 'dark')
-    # effective theme is already resolved in load_config for "system"
     init_theme        = stored_theme if stored_theme != 'system' else ('dark' if _is_windows_dark_theme() else 'light')
     init_preset       = config['preset']
     version           = APP_VERSION
@@ -613,7 +636,7 @@ body{
   font-size:15px;line-height:1.7;
   -webkit-app-region:drag;user-select:none;
 }
-#page{max-width:860px;margin:0 auto;padding:36px 48px 64px;-webkit-app-region:drag}
+#page{max-width:956px;margin:0 auto;padding:36px 48px 64px;-webkit-app-region:drag}
 #page a,#page code,#page pre,#page table,#page input,#page img{
   -webkit-app-region:no-drag;user-select:text;
 }
@@ -790,6 +813,14 @@ function persistSettings() {
   if (window.pywebview && window.pywebview.api && window.pywebview.api.save_config) {
     pywebview.api.save_config({theme: currentTheme, preset: currentPreset});
   }
+}
+
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (currentTheme === 'system') {
+      document.body.dataset.theme = effectiveTheme('system');
+    }
+  });
 }
 
 async function buildMenu(x, y) {
@@ -1011,12 +1042,16 @@ document.addEventListener('drop', e => {
     }
   });
 
+  let _searchDebounce = null;
   input.addEventListener('input', () => {
-    if (input.value.trim().length >= 2) {
-      doSearch();
-    } else {
-      clearHighlights();
-    }
+    clearTimeout(_searchDebounce);
+    _searchDebounce = setTimeout(() => {
+      if (input.value.trim().length >= 2) {
+        doSearch();
+      } else {
+        clearHighlights();
+      }
+    }, 150);
   });
 
   btnNext && btnNext.addEventListener('click', next);
@@ -1049,16 +1084,15 @@ document.getElementById('btn-gear').addEventListener('click', e => {
   buildMenu(r.left, r.bottom + 4);
 });
 
+document.getElementById('btn-close').addEventListener('mousedown', (e) => {
+  e.stopPropagation();
+});
 document.getElementById('btn-close').addEventListener('click', () => {
   pywebview.api.close_window();
 });
 
-// "Doc width, full height" button — always snaps to half the current monitor width
-// + full height, centered. Simple, predictable "comfortable reading pane".
-// (Previously did dynamic content measurement, which could become too narrow
-// on documents whose beginning legitimately has less wide content.)
 document.getElementById('btn-tall').addEventListener('click', () => {
-  pywebview.api.snap_to_half();
+  pywebview.api.snap('reading');
 });
 
 document.getElementById('btn-left').addEventListener('click',  () => pywebview.api.snap('left'));
@@ -1084,6 +1118,19 @@ const md = markdownit({
 function jslog(msg) {
   try { if (window.pywebview && window.pywebview.api && window.pywebview.api.js_log) pywebview.api.js_log(String(msg)); } catch(_) {}
   console.log(msg);
+}
+
+async function reloadFromDisk() {
+  const contentEl = document.getElementById('content');
+  if (!contentEl) return;
+  try {
+    const raw = await pywebview.api.get_file();
+    const rendered = md.render(raw);
+    const frag = document.createRange().createContextualFragment(rendered);
+    contentEl.replaceChildren(frag);
+  } catch (e) {
+    jslog('reloadFromDisk failed: ' + e);
+  }
 }
 
 async function init() {
@@ -1140,19 +1187,22 @@ const _pollId = setInterval(() => {
   if (_inited || _polls > 200) clearInterval(_pollId);
 }, 50);
 
-// === Fix for "first click after Alt-Tab does nothing + window shifts" ===
-// Re-apply thickframe style on focus regain (WebView2 / OS sometimes strips it on deactivation).
+// Re-apply thickframe on focus regain (debounced — avoids fighting the first click).
+let _focusRefreshTimer = null;
 window.addEventListener('focus', () => {
-  if (window.pywebview && window.pywebview.api && window.pywebview.api.refresh_resize_handles) {
-    pywebview.api.refresh_resize_handles();
-  }
+  clearTimeout(_focusRefreshTimer);
+  _focusRefreshTimer = setTimeout(() => {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.refresh_resize_handles) {
+      pywebview.api.refresh_resize_handles();
+    }
+  }, 50);
 });
 
-// On mousedown in the button area, explicitly activate the window.
-// This helps the click actually reach the button on the activation click after Alt-Tab.
+// On mousedown in the button area (except close), explicitly activate the window.
 const controls = document.getElementById('controls');
 if (controls) {
-  controls.addEventListener('mousedown', () => {
+  controls.addEventListener('mousedown', (e) => {
+    if (e.target.closest('#btn-close')) return;
     if (window.pywebview && window.pywebview.api && window.pywebview.api.force_activate) {
       pywebview.api.force_activate();
     }
@@ -1254,19 +1304,8 @@ def main() -> None:
                     mtime = os.path.getmtime(file_path)
                     if mtime != watched['mtime']:
                         watched['mtime'] = mtime
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            new_content = f.read()
                         if api_instance._window:
-                            api_instance._window.evaluate_js(f'''
-                                (function() {{
-                                    const contentEl = document.getElementById('content');
-                                    if (!contentEl) return;
-                                    const raw = {json.dumps(new_content)};
-                                    const rendered = md.render(raw);
-                                    const frag = document.createRange().createContextualFragment(rendered);
-                                    contentEl.replaceChildren(frag);
-                                }})();
-                            ''')
+                            api_instance._window.evaluate_js('reloadFromDisk();')
                         _dlog('File watcher: reloaded %s', file_path)
                 except Exception as e:
                     _dlog('File watcher error: %s', e)
@@ -1282,9 +1321,16 @@ def main() -> None:
         _enable_native_resize(api._ensure_hwnd())
 
     window.events.loaded += on_loaded
+    window.events.resized += lambda e: api._schedule_save_geometry()
+    window.events.moved += lambda e: api._schedule_save_geometry()
 
     def on_closing():
-        # Use the shared helper — it is defensive and logs.
+        if api._geom_save_timer is not None:
+            try:
+                api._geom_save_timer.cancel()
+            except Exception:
+                pass
+            api._geom_save_timer = None
         api._save_geometry()
 
     window.events.closing += on_closing
