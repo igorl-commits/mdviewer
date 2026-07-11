@@ -1,3 +1,4 @@
-pywebview>=5.0
+pywebview>=6.0
 pyinstaller>=6.0
 pytest>=8.0
+# On Python 3.14+: pip install pythonnet --pre  (before pywebview if install fails)
