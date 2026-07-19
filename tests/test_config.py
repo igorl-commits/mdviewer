@@ -109,8 +109,8 @@ class TestSaveConfig:
             }, f)
         with patch('config.CONFIG_PATH', p):
             _reload_config()
-            import mdviewer
-            api = mdviewer.Api('x.md', 'x.md')
+            from api import Api
+            api = Api('x.md', 'x.md')
             api._window = MagicMock(
                 fullscreen=False, x=10, y=20, width=800, height=600)
             api.save_config({'theme': 'light'})
@@ -129,8 +129,8 @@ class TestSaveConfig:
             }, f)
         with patch('config.CONFIG_PATH', p):
             _reload_config()
-            import mdviewer
-            api = mdviewer.Api('x.md', 'x.md')
+            from api import Api
+            api = Api('x.md', 'x.md')
             api._window = MagicMock(fullscreen=False, x=100, y=50, width=900, height=700)
             api._save_geometry()
         with open(p) as f:
@@ -261,8 +261,8 @@ class TestReadTextFile:
 class TestWindowGeometry:
     def test_geometry_from_window_uses_pywebview_api(self):
         import geometry as g
-        import mdviewer as m
-        api = m.Api('x.md', 'x.md')
+        from api import Api
+        api = Api('x.md', 'x.md')
         win = MagicMock(fullscreen=False, x=120, y=80, width=1024, height=768)
         api._window = win
         assert g._geometry_from_window(api) == (120, 80, 1024, 768)
@@ -276,8 +276,8 @@ class TestWindowGeometry:
             }, f)
         with patch('config.CONFIG_PATH', p):
             _reload_config()
-            import mdviewer
-            api = mdviewer.Api('x.md', 'x.md')
+            from api import Api
+            api = Api('x.md', 'x.md')
             win = MagicMock(fullscreen=False, x=250, y=100, width=1100, height=850)
             api._window = win
             api._save_geometry()
@@ -300,21 +300,21 @@ class TestReadingSnap:
         assert outer == 900
 
     def test_reading_snap_uses_pywebview_resize(self):
-        import mdviewer as m
+        from api import Api
         import inspect
-        src = inspect.getsource(m.Api.snap)
+        src = inspect.getsource(Api.snap)
         assert 'self._window.resize' in src
         assert '_TARGET_READING_CLIENT_LOGICAL' in src
 
 
 class TestSnapApi:
     def test_reading_mode_exists(self):
-        import mdviewer as m
+        from api import Api
         import inspect
-        src = inspect.getsource(m.Api.snap)
+        src = inspect.getsource(Api.snap)
         assert "mode == 'reading'" in src
 
     def test_half_screen_helpers_removed(self):
-        import mdviewer as m
-        assert not hasattr(m.Api, 'snap_to_half')
-        assert not hasattr(m.Api, 'snap_to_content_width')
+        from api import Api
+        assert not hasattr(Api, 'snap_to_half')
+        assert not hasattr(Api, 'snap_to_content_width')
