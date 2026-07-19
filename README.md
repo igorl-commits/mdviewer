@@ -33,7 +33,7 @@ After `install.bat`, right-click any `.md` → Open with → MD Viewer.
 ```bash
 pip install -r requirements.txt
 # Python 3.14+: if pywebview fails, run: pip install pythonnet --pre
-python fetch_assets.py        # download + embed JS/CSS into mdviewer.py (once)
+python fetch_assets.py        # download + embed JS/CSS into assets.py (once)
 python mdviewer.py test.md    # run without building exe
 pytest tests/                 # unit tests
 node tests/test_theme_cycle.mjs
@@ -44,13 +44,19 @@ Debug log: `set MDVIEWER_DEBUG=1` before launching — writes to `%APPDATA%\mdvi
 ## File structure
 
 ```
-mdviewer.py        # entire app — single Python file
-fetch_assets.py    # dev tool: downloads markdown-it + highlight.js, patches mdviewer.py
+mdviewer.py        # entry: window wiring, file watcher
+debug.py           # _DEBUG / _dlog (leaf)
+assets.py          # base64 JS/CSS bundle (patched by fetch_assets.py)
+config.py          # load/save, portable path, recent, version
+geometry.py        # Win32 geometry, clamp, reading width
+api.py             # pywebview Api bridge
+template.py        # build_html() HTML/CSS/JS page
+fetch_assets.py    # dev tool: downloads markdown-it + highlight.js, patches assets.py
 install.bat        # registers Windows file association
 build.bat          # PyInstaller one-liner → dist/mdviewer.exe (+ version.txt bundle)
 tests/
   test_config.py   # unit tests (config, clamp, snap math, encoding)
-  test_theme_cycle.mjs  # theme-cycle JS logic test
+  test_theme_cycle.mjs  # theme-cycle JS logic test (from template.py)
 test.md            # sample file with code blocks
 ```
 
@@ -78,7 +84,7 @@ Portable: place `config.json` next to `mdviewer.exe` (or `mdviewer.py` in dev) t
 - **Window geometry** — never trust `window.screenX/Y` in WebView2 frameless mode (returns 0). Use Win32 `GetWindowRect` + `MonitorFromWindow` for all position/snap logic.
 - **Doc width snap** — `snap('reading')` uses `AdjustWindowRectEx` so thickframe borders don't shrink the prose column.
 - **Encoding** — UTF-8 (with BOM) preferred; Windows-1252 fallback for legacy files.
-- **Assets** — `fetch_assets.py` downloads markdown-it.js + highlight.js + 8 CSS themes from cdnjs and base64-encodes them into `mdviewer.py`. Fully offline after that.
+- **Assets** — `fetch_assets.py` downloads markdown-it.js + highlight.js + 8 CSS themes from cdnjs and base64-encodes them into `assets.py`. Fully offline after that.
 
 ## Stack
 
