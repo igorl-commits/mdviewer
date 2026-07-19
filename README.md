@@ -2,6 +2,8 @@
 
 Lightweight Windows 11 markdown viewer. Opens `.md` files natively via "Open with…". Frameless window, theme/preset menu, 8 syntax presets, persistent layout.
 
+![mdviewer screenshot](docs/screenshot.png)
+
 ## Features
 
 - **Open with** — register as a handler for `.md` files (no admin needed)
