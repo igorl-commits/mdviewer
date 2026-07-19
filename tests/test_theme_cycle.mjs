@@ -1,13 +1,13 @@
 // Theme-cycle logic test. Extracts effectiveTheme()/nextTheme() from the JS
-// template in mdviewer.py and verifies no click is ever a visual no-op.
+// template in template.py and verifies no click is ever a visual no-op.
 // Run: node tests/test_theme_cycle.mjs
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
-const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'mdviewer.py'), 'utf8');
+const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'template.py'), 'utf8');
 const m = src.match(/\/\/ THEME-CYCLE-LOGIC-START([\s\S]*?)\/\/ THEME-CYCLE-LOGIC-END/);
-if (!m) { console.error('FAIL: theme-cycle logic markers not found in mdviewer.py'); process.exit(1); }
+if (!m) { console.error('FAIL: theme-cycle logic markers not found in template.py'); process.exit(1); }
 
 let failures = 0;
 function check(name, actual, expected) {
