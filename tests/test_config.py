@@ -1,23 +1,23 @@
 import json
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 
-def _reload():
+def _reload_config():
     import importlib
-    import mdviewer
-    importlib.reload(mdviewer)
-    return mdviewer
+    import config
+    importlib.reload(config)
+    return config
 
 
 class TestLoadConfig:
     def test_returns_defaults_when_missing(self, tmp_path):
         p = str(tmp_path / 'config.json')
-        with patch('mdviewer.CONFIG_PATH', p):
-            cfg = _reload().load_config()
+        with patch('config.CONFIG_PATH', p):
+            cfg = _reload_config().load_config()
         assert cfg['theme'] == 'dark'
         assert cfg['preset'] == 'github-dark'
         assert cfg['window']['width'] == 900
@@ -26,8 +26,8 @@ class TestLoadConfig:
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
             f.write('not json')
-        with patch('mdviewer.CONFIG_PATH', p):
-            cfg = _reload().load_config()
+        with patch('config.CONFIG_PATH', p):
+            cfg = _reload_config().load_config()
         assert cfg['theme'] == 'dark'
 
     def test_reads_saved_values(self, tmp_path):
@@ -36,8 +36,8 @@ class TestLoadConfig:
                  'window': {'width': 1200, 'height': 800, 'x': 100, 'y': 50}}
         with open(p, 'w') as f:
             json.dump(saved, f)
-        with patch('mdviewer.CONFIG_PATH', p):
-            cfg = _reload().load_config()
+        with patch('config.CONFIG_PATH', p):
+            cfg = _reload_config().load_config()
         assert cfg['theme'] == 'light'
         assert cfg['window']['width'] == 1200
         assert cfg['window']['x'] == 100
@@ -49,16 +49,16 @@ class TestLoadConfig:
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
             json.dump({'theme': 'system', 'preset': 'nord'}, f)
-        with patch('mdviewer.CONFIG_PATH', p):
-            cfg = _reload().load_config()
+        with patch('config.CONFIG_PATH', p):
+            cfg = _reload_config().load_config()
         assert cfg['theme'] == 'system'
 
     def test_missing_window_key_uses_defaults(self, tmp_path):
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
             json.dump({'theme': 'light', 'preset': 'dracula'}, f)
-        with patch('mdviewer.CONFIG_PATH', p):
-            cfg = _reload().load_config()
+        with patch('config.CONFIG_PATH', p):
+            cfg = _reload_config().load_config()
         assert cfg['window']['width'] == 900
 
     def test_recent_files_round_trip(self, tmp_path):
@@ -70,17 +70,19 @@ class TestLoadConfig:
         }
         with open(p, 'w') as f:
             json.dump(saved, f)
-        with patch('mdviewer.CONFIG_PATH', p):
-            cfg = _reload().load_config()
+        with patch('config.CONFIG_PATH', p):
+            cfg = _reload_config().load_config()
         assert cfg['recent'] == ['C:/docs/a.md', 'C:/docs/b.md']
 
 
 class TestSaveConfig:
     def test_creates_file_and_parent_dirs(self, tmp_path):
         p = str(tmp_path / 'sub' / 'config.json')
-        with patch('mdviewer.CONFIG_PATH', p):
-            _reload().save_config_file({'theme': 'dark', 'preset': 'dracula',
-                                        'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0}})
+        with patch('config.CONFIG_PATH', p):
+            _reload_config().save_config_file({
+                'theme': 'dark', 'preset': 'dracula',
+                'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
+            })
         assert os.path.exists(p)
         with open(p) as f:
             assert json.load(f)['preset'] == 'dracula'
@@ -89,9 +91,11 @@ class TestSaveConfig:
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
             json.dump({'theme': 'light'}, f)
-        with patch('mdviewer.CONFIG_PATH', p):
-            _reload().save_config_file({'theme': 'dark', 'preset': 'nord',
-                                        'window': {'width': 800, 'height': 600, 'x': 0, 'y': 0}})
+        with patch('config.CONFIG_PATH', p):
+            _reload_config().save_config_file({
+                'theme': 'dark', 'preset': 'nord',
+                'window': {'width': 800, 'height': 600, 'x': 0, 'y': 0},
+            })
         with open(p) as f:
             assert json.load(f)['theme'] == 'dark'
 
@@ -103,12 +107,12 @@ class TestSaveConfig:
                 'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
                 'recent': ['C:/keep.md'],
             }, f)
-        with patch('mdviewer.CONFIG_PATH', p):
-            m = _reload()
-            api = m.Api('x.md', 'x.md')
-            win = __import__('unittest.mock').mock.MagicMock(
+        with patch('config.CONFIG_PATH', p):
+            _reload_config()
+            import mdviewer
+            api = mdviewer.Api('x.md', 'x.md')
+            api._window = MagicMock(
                 fullscreen=False, x=10, y=20, width=800, height=600)
-            api._window = win
             api.save_config({'theme': 'light'})
         with open(p) as f:
             saved = json.load(f)
@@ -123,10 +127,10 @@ class TestSaveConfig:
                 'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
                 'recent': ['C:/keep.md'],
             }, f)
-        with patch('mdviewer.CONFIG_PATH', p):
-            m = _reload()
-            api = m.Api('x.md', 'x.md')
-            from unittest.mock import MagicMock
+        with patch('config.CONFIG_PATH', p):
+            _reload_config()
+            import mdviewer
+            api = mdviewer.Api('x.md', 'x.md')
             api._window = MagicMock(fullscreen=False, x=100, y=50, width=900, height=700)
             api._save_geometry()
         with open(p) as f:
@@ -137,6 +141,7 @@ class TestSaveConfig:
 class TestClampPosition:
     # clamp_position queries the *virtual screen* (all monitors combined):
     # GetSystemMetrics(76/77/78/79) = SM_X/Y/CX/CYVIRTUALSCREEN, in that order.
+    # Still on mdviewer until geometry extract (#4).
 
     def test_none_inputs_return_none(self):
         import mdviewer
@@ -227,7 +232,6 @@ class TestDocWidthButtonAndSnapFlakiness:
         thickframe style) so that the final client area matches the CSS #page design
         instead of being eaten by the non-client borders. This fixes 'window not on doc width'."""
         import mdviewer as m
-        from unittest.mock import patch
 
         with patch('ctypes.windll.user32.GetWindowLongW', return_value=0x40000), \
              patch('ctypes.windll.user32.AdjustWindowRectEx') as mock_adj:
@@ -245,19 +249,18 @@ class TestReadTextFile:
     def test_utf8_sig_bom(self, tmp_path):
         p = tmp_path / 'bom.md'
         p.write_bytes(b'\xef\xbb\xbf# hello')
-        import mdviewer as m
-        assert m._read_text_file(str(p)) == '# hello'
+        import config
+        assert config._read_text_file(str(p)) == '# hello'
 
     def test_cp1252_fallback(self, tmp_path):
         p = tmp_path / 'win.md'
         p.write_bytes('caf\xe9'.encode('cp1252'))
-        import mdviewer as m
-        assert m._read_text_file(str(p)) == 'café'
+        import config
+        assert config._read_text_file(str(p)) == 'café'
 
 
 class TestWindowGeometry:
     def test_geometry_from_window_uses_pywebview_api(self):
-        from unittest.mock import MagicMock
         import mdviewer as m
         api = m.Api('x.md', 'x.md')
         win = MagicMock(fullscreen=False, x=120, y=80, width=1024, height=768)
@@ -265,16 +268,16 @@ class TestWindowGeometry:
         assert m._geometry_from_window(api) == (120, 80, 1024, 768)
 
     def test_save_geometry_persists_pywebview_coords(self, tmp_path):
-        from unittest.mock import MagicMock
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
             json.dump({
                 'theme': 'dark', 'preset': 'github-dark',
                 'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
             }, f)
-        with patch('mdviewer.CONFIG_PATH', p):
-            m = _reload()
-            api = m.Api('x.md', 'x.md')
+        with patch('config.CONFIG_PATH', p):
+            _reload_config()
+            import mdviewer
+            api = mdviewer.Api('x.md', 'x.md')
             win = MagicMock(fullscreen=False, x=250, y=100, width=1100, height=850)
             api._window = win
             api._save_geometry()
@@ -291,7 +294,6 @@ class TestReadingSnap:
 
     def test_outer_logical_scales_with_dpi(self):
         import mdviewer as m
-        from unittest.mock import patch
         with patch.object(m, '_hwnd_dpi_scale', return_value=1.5), \
              patch.object(m, '_get_required_window_size_for_client', return_value=(1350, 200)):
             outer, _ = m._outer_logical_for_client_logical(884, 100, 0x1234)
