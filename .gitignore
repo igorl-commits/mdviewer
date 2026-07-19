@@ -7,6 +7,5 @@ dist/
 .pytest_cache/
 version.txt
 mcps/
-.serena/
 .tokensave/
 tmp/
