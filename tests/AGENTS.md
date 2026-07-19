@@ -8,14 +8,15 @@ Unit and extracted-JS tests for mdviewer. No real WebView window required.
 
 | File | Covers |
 |------|--------|
-| `test_config.py` | `load_config`, `save_config_file`, `clamp_position`, snap math, `_read_text_file`, `_geometry_from_window`, `Api` config preservation |
-| `test_theme_cycle.mjs` | `effectiveTheme()` / `nextTheme()` from template markers — no visual no-op on theme click |
+| `test_config.py` | `config` load/save, `geometry.clamp_position`, snap math, `_read_text_file`, `_geometry_from_window`, `api.Api` config preservation |
+| `test_theme_cycle.mjs` | `effectiveTheme()` / `nextTheme()` from `template.py` markers — no visual no-op on theme click |
 
 ## Local Contracts
 
-- Patch `mdviewer.CONFIG_PATH` and `importlib.reload(mdviewer)` when testing config (module-level `CONFIG_PATH`).
+- Patch `config.CONFIG_PATH` and `importlib.reload(config)` when testing config (module-level `CONFIG_PATH`).
+- Import symbols from their owning modules (`config`, `geometry`, `api`) — no re-exports from `mdviewer`.
 - Mock `ctypes.windll.user32` for geometry tests.
-- Do not rename `THEME-CYCLE-LOGIC-START` / `END` in `mdviewer.py` without updating the Node test.
+- Do not rename `THEME-CYCLE-LOGIC-START` / `END` in `template.py` without updating the Node test.
 
 ## Verification
 

@@ -1,56 +1,16 @@
 #!/usr/bin/env python3
-import sys
+"""mdviewer entry point — window construction and wiring."""
 import os
-import json
-import ctypes
+import sys
+
 import webview
 
-from debug import _DEBUG, _dlog
-from assets import MARKDOWN_IT_JS, HLJS_JS, HLJS_THEMES
-
-from config import (
-    APP_VERSION,
-    CONFIG_PATH,
-    DEFAULTS,
-    PRESETS,
-    _get_version,
-    _is_windows_dark_theme,
-    _read_text_file,
-    _update_recent_files,
-    load_config,
-    save_config_file,
-)
-
-from geometry import (
-    _GWL_EXSTYLE,
-    _GWL_STYLE,
-    _MONITORINFO,
-    _PAGE_CONTENT_LOGICAL,
-    _PAGE_HPAD_LOGICAL,
-    _PAGE_MAX_LOGICAL,
-    _POINT,
-    _READING_SIDE_MARGIN_LOGICAL,
-    _RECT,
-    _SCROLLBAR_GUTTER_LOGICAL,
-    _SWP_FRAMECHANGED,
-    _TARGET_READING_CLIENT_LOGICAL,
-    _WS_THICKFRAME,
-    _cursor_pos,
-    _enable_native_resize,
-    _find_hwnd,
-    _geometry_from_window,
-    _get_required_window_size_for_client,
-    _hwnd_dpi_scale,
-    _logical_work_area_for,
-    _outer_logical_for_client_logical,
-    _window_rect,
-    _work_area_for,
-    clamp_position,
-)
-
 from api import Api
-
+from config import _update_recent_files, load_config
+from debug import _DEBUG, _dlog
+from geometry import _enable_native_resize, clamp_position
 from template import build_html
+
 
 def main() -> None:
     if len(sys.argv) < 2:
