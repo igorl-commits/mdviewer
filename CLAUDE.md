@@ -9,7 +9,7 @@ Offline Python markdown viewer for Windows 11. Entry point `mdviewer.py` wires f
 ```bash
 python mdviewer.py <file.md>   # run dev
 pytest tests/                  # unit tests (config, clamp, encoding, snap)
-node tests/test_theme_cycle.mjs  # theme-cycle JS logic (extracted from template.py)
+node tests/test_theme_cycle.mjs  # app-theme wiring smoke (chrome CSS + no legacy cycle)
 python fetch_assets.py         # re-embed JS/CSS into assets.py (only needed after version bumps)
 build.bat                      # PyInstaller → dist/mdviewer.exe
 install.bat                    # register file association (HKCU, no admin)
@@ -50,10 +50,14 @@ pywebview's `toggle_fullscreen()` restores `FormBorderStyle = None`, which strip
 
 ### 5. HTML template is one big string in `build_html()` (`template.py`)
 
-The entire HTML/CSS/JS page is a string in `build_html()` in `template.py`. Placeholders (`__THEME__`, `__PRESET__`, `__MARKDOWN_IT_JS__`, etc.) are filled via `.replace()` chains. When editing:
+The entire HTML/CSS/JS page is a string in `build_html()` in `template.py`. Placeholders (`__THEME__`, `__HLJS_JSON__`, `__THEMES_LIST_JSON__`, `__MARKDOWN_IT_JS__`, etc.) are filled via `.replace()` chains. When editing:
 - Don't introduce strings that match placeholders unless intentional.
 - Escape `{` / `}` not needed (we use `.replace()`, not `.format()`).
 - Keep `__MARKDOWN_IT_JS__` and `__HLJS_JS__` as single tokens — they expand to ~100 KB each.
+
+### 5b. App theme is one key (chrome + syntax)
+
+`theme` is never `dark`/`light`/`system`. It is an app theme key from `config.THEMES`. `setTheme(key)` sets `body.dataset.theme` (chrome CSS variables) and injects `HLJS_THEMES[key]` into `#hljs-theme`. See `docs/adr/0005-unified-app-themes.md`.
 
 ### 6. Asset bundle in `assets.py`
 

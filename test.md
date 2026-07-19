@@ -1,6 +1,6 @@
 # MD Viewer — Theme Test
 
-This document has fenced code blocks in several languages. **Right-click anywhere** to switch syntax themes and watch the code colors change.
+This document has fenced code blocks in several languages. **Right-click anywhere** (or use the gear menu) to switch **app themes** — page chrome and code colors change together.
 
 ## Python
 

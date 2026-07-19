@@ -5,8 +5,8 @@ An offline-only Windows markdown viewer (Python + pywebview). Config keys and UI
 ## Language
 
 **Theme**:
-The full app appearance: chrome colors (background, text, headings, menus, borders) **and** matching syntax-highlighting stylesheet. One of: `github-dark`, `github`, `dracula`, `monokai`, `nord`, `atom-one-dark`, `solarized-dark`, `vs2015`. Chosen from the gear/context menu; persisted as config `theme`.
-_Avoid_: Preset, dark/light/system mode (removed — those were the old UI-only mode).
+The full app appearance: chrome colors (background, text, headings, menus, borders) **and** matching syntax-highlighting stylesheet. One of: `github-dark`, `github`, `dracula`, `monokai`, `nord`, `atom-one-dark`, `solarized-dark`, `vs2015`. Chosen from the gear/context menu; persisted as config `theme`. Decision record: `docs/adr/0005-unified-app-themes.md`.
+_Avoid_: Preset, syntax theme (as a separate concept), dark/light/system mode (removed — those were the old UI-only mode).
 
 **Snap**:
 A window-placement command (`left`, `right`, `reading`) that resizes and repositions the frameless window via Win32 geometry, distinct from OS-native window snapping (Win+Arrow), which the frameless window doesn't participate in.

@@ -1,4 +1,4 @@
-"""Config load/save, portable path, recent files, version."""
+"""Config load/save, portable path, recent files, version, app theme keys."""
 import json
 import os
 import sys

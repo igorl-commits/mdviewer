@@ -17,7 +17,7 @@ Windows 11 offline markdown viewer. Entry point `mdviewer.py` wires focused modu
 | `template.py` | `build_html()` HTML/CSS/JS template string |
 | `fetch_assets.py` | Dev-only CDN fetch → patch ASSET BUNDLE in `assets.py` |
 | `build.bat` / `install.bat` | Package exe + HKCU file association |
-| `tests/` | pytest + Node theme-cycle test — see `tests/AGENTS.md` |
+| `tests/` | pytest + Node app-theme smoke test — see `tests/AGENTS.md` |
 
 ## Local Contracts
 
@@ -43,7 +43,9 @@ Config path: `%APPDATA%\mdviewer\config.json`, or `config.json` beside exe/scrip
 ### HTML template (`template.py`)
 
 - Lives in `build_html()` as one string; placeholders filled via `.replace()`.
-- Theme-cycle logic between `THEME-CYCLE-LOGIC-START` / `END` — extracted by `tests/test_theme_cycle.mjs`.
+- App theme: `body[data-theme="<key>"]` chrome variables **and** HLJS CSS for the same key via `setTheme` (see ADR-0005).
+- After render, relative `img` src resolved via `Api.resolve_media` → data URI (ADR-0006).
+- Content images: thin `1px solid var(--border)` so dark screenshots don’t blend into chrome.
 - Asset constants imported from `assets.py`.
 
 ### Asset bundle (`assets.py`)
@@ -61,7 +63,8 @@ Config path: `%APPDATA%\mdviewer\config.json`, or `config.json` beside exe/scrip
 - File reads: `_read_text_file()` (utf-8-sig → utf-8 → cp1252).
 - Version: dev uses `git rev-list --count`; frozen exe reads bundled `version.txt` from `build.bat`.
 - Flat modules alongside `mdviewer.py` (not a package directory) — PyInstaller follows the local import graph from the entry script.
-- Standing project principle: keep the app lean, minimal dependencies, no functionality for its own sake. Weigh new dependencies and abstractions against this before adding them. See `docs/adr/` for where this shaped specific decisions (asset bundling, config format).
+- Standing project principle: keep the app lean, minimal dependencies, no functionality for its own sake. Weigh new dependencies and abstractions against this before adding them. See `docs/adr/` for decisions (assets, frameless, client-side render, file association, unified themes, relative images).
+- Domain language: use **Theme** as in `CONTEXT.md` (full app look). Do not reintroduce separate “preset” or dark/light/system UI modes without an ADR.
 
 ## Verification
 
@@ -75,4 +78,10 @@ python -m py_compile mdviewer.py debug.py assets.py config.py geometry.py api.py
 
 - `tests/AGENTS.md` — test layout and conventions
 - `CONTEXT.md` — domain glossary (theme, snap, portable mode, recent files)
-- `docs/adr/` — architecture decisions (offline asset embedding, frameless window, client-side rendering, file association)
+- `docs/adr/` — architecture decisions:
+  - `0001` offline asset embedding (`assets.py`)
+  - `0002` frameless window
+  - `0003` client-side markdown rendering
+  - `0004` non-default file association
+  - `0005` unified app themes (no dark/light/system)
+  - `0006` relative images as data URIs

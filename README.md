@@ -58,7 +58,7 @@ install.bat        # registers Windows file association
 build.bat          # PyInstaller one-liner → dist/mdviewer.exe (+ version.txt bundle)
 tests/
   test_config.py   # unit tests (config, clamp, snap math, encoding)
-  test_theme_cycle.mjs  # theme-cycle JS logic test (from template.py)
+  test_theme_cycle.mjs  # app-theme wiring smoke test
 test.md            # sample file with code blocks
 ```
 
@@ -84,6 +84,8 @@ Portable: place `config.json` next to `mdviewer.exe` (or `mdviewer.py` in dev) t
 - **API introspection trap** — pywebview's `get_functions()` recursively walks public attributes on the `js_api` object. All non-callable state must be underscore-prefixed (`self._window`, `self._hwnd`) or pywebview recurses into .NET objects and dumps ~2.6 MB of COM exceptions per launch.
 - **Window geometry** — never trust `window.screenX/Y` in WebView2 frameless mode (returns 0). Use Win32 `GetWindowRect` + `MonitorFromWindow` for all position/snap logic.
 - **Doc width snap** — `snap('reading')` uses `AdjustWindowRectEx` so thickframe borders don't shrink the prose column.
+- **App themes** — one config key styles page chrome and code highlighting together (no separate light/dark/system mode). See `docs/adr/0005-unified-app-themes.md`.
+- **Relative images** — after render, local `img` paths are resolved against the open `.md` directory and embedded as data URIs (HTML string has no `file://` base). See `docs/adr/0006-relative-images-as-data-uris.md`.
 - **Encoding** — UTF-8 (with BOM) preferred; Windows-1252 fallback for legacy files.
 - **Assets** — `fetch_assets.py` downloads markdown-it.js + highlight.js + 8 CSS themes from cdnjs and base64-encodes them into `assets.py`. Fully offline after that.
 
