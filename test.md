@@ -59,13 +59,13 @@ ORDER BY order_count DESC;
 
 ## Inline code
 
-Inline `code` snippets are not affected by syntax themes — only fenced blocks. They use the prose `--code-bg` color which depends on the **light/dark** toggle.
+Inline `code` snippets use the theme's prose `--code-bg` (same app theme as the page chrome). Fenced blocks use the matching highlight.js stylesheet.
 
 ## A table
 
-| Theme | Mode | Notes |
-|-------|------|-------|
-| GitHub Dark | dark | default |
-| Dracula | dark | high contrast |
-| Nord | dark | muted blues |
-| GitHub Light | light | use with Light theme |
+| Theme | Notes |
+|-------|-------|
+| GitHub Dark | default full app look |
+| Dracula | purple headings, high contrast |
+| Nord | muted blues |
+| GitHub Light | light chrome + light code |

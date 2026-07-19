@@ -91,23 +91,21 @@ Do not rename or reformat those comments. The regex in `fetch_assets.py` matches
 
 ```json
 {
-  "theme": "dark | light | system",
-  "preset": "github-dark | github | dracula | monokai | nord | atom-one-dark | solarized-dark | vs2015",
+  "theme": "github-dark | github | dracula | monokai | nord | atom-one-dark | solarized-dark | vs2015",
   "window": { "width": 900, "height": 700, "x": 200, "y": 150 },
   "recent": []
 }
 ```
 
-Delete `%APPDATA%\mdviewer\config.json` to reset to defaults.
+`theme` is the full app look (chrome CSS variables + highlight.js pack). Legacy configs with `theme: dark|light|system` and a `preset` key are migrated on load (preset wins). Delete `%APPDATA%\mdviewer\config.json` to reset to defaults.
 
 ## Tests
 
 ```
 tests/test_config.py        pytest: load/save config, recent preservation, clamp, snap math,
                             _read_text_file encoding, dead-code guards
-tests/test_theme_cycle.mjs  node test: extracts effectiveTheme()/nextTheme() from the
-  JS template in template.py via THEME-CYCLE-LOGIC-START/END markers and verifies no theme
-  click is a visual no-op under either OS appearance. Don't rename those markers.
+tests/test_theme_cycle.mjs  node test: asserts all 8 app themes have chrome CSS and that
+  legacy light/dark/system cycle helpers are gone.
 ```
 
 Tests mock `ctypes.windll.user32` where needed. No real window required.

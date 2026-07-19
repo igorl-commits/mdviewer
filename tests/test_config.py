@@ -18,8 +18,8 @@ class TestLoadConfig:
         p = str(tmp_path / 'config.json')
         with patch('config.CONFIG_PATH', p):
             cfg = _reload_config().load_config()
-        assert cfg['theme'] == 'dark'
-        assert cfg['preset'] == 'github-dark'
+        assert cfg['theme'] == 'github-dark'
+        assert 'preset' not in cfg
         assert cfg['window']['width'] == 900
 
     def test_returns_defaults_on_corrupt_json(self, tmp_path):
@@ -28,35 +28,42 @@ class TestLoadConfig:
             f.write('not json')
         with patch('config.CONFIG_PATH', p):
             cfg = _reload_config().load_config()
-        assert cfg['theme'] == 'dark'
+        assert cfg['theme'] == 'github-dark'
 
-    def test_reads_saved_values(self, tmp_path):
+    def test_reads_saved_app_theme(self, tmp_path):
         p = str(tmp_path / 'config.json')
-        saved = {'theme': 'light', 'preset': 'github',
+        saved = {'theme': 'dracula',
                  'window': {'width': 1200, 'height': 800, 'x': 100, 'y': 50}}
         with open(p, 'w') as f:
             json.dump(saved, f)
         with patch('config.CONFIG_PATH', p):
             cfg = _reload_config().load_config()
-        assert cfg['theme'] == 'light'
+        assert cfg['theme'] == 'dracula'
         assert cfg['window']['width'] == 1200
         assert cfg['window']['x'] == 100
 
-    def test_system_theme_survives_load(self, tmp_path):
-        """theme='system' must round-trip through load_config unresolved, otherwise
-        any config save (geometry, recent files) permanently overwrites the user's
-        'follow system' choice with a concrete dark/light value."""
+    def test_migrates_legacy_preset_when_theme_is_light_dark_system(self, tmp_path):
+        """Old schema: theme=dark|light|system + preset=app look. Prefer preset."""
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
             json.dump({'theme': 'system', 'preset': 'nord'}, f)
         with patch('config.CONFIG_PATH', p):
             cfg = _reload_config().load_config()
-        assert cfg['theme'] == 'system'
+        assert cfg['theme'] == 'nord'
+        assert 'preset' not in cfg
+
+    def test_legacy_ui_theme_without_preset_falls_back_to_default(self, tmp_path):
+        p = str(tmp_path / 'config.json')
+        with open(p, 'w') as f:
+            json.dump({'theme': 'light'}, f)
+        with patch('config.CONFIG_PATH', p):
+            cfg = _reload_config().load_config()
+        assert cfg['theme'] == 'github-dark'
 
     def test_missing_window_key_uses_defaults(self, tmp_path):
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
-            json.dump({'theme': 'light', 'preset': 'dracula'}, f)
+            json.dump({'theme': 'dracula'}, f)
         with patch('config.CONFIG_PATH', p):
             cfg = _reload_config().load_config()
         assert cfg['window']['width'] == 900
@@ -64,7 +71,7 @@ class TestLoadConfig:
     def test_recent_files_round_trip(self, tmp_path):
         p = str(tmp_path / 'config.json')
         saved = {
-            'theme': 'dark', 'preset': 'github-dark',
+            'theme': 'github-dark',
             'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
             'recent': ['C:/docs/a.md', 'C:/docs/b.md'],
         }
@@ -80,30 +87,32 @@ class TestSaveConfig:
         p = str(tmp_path / 'sub' / 'config.json')
         with patch('config.CONFIG_PATH', p):
             _reload_config().save_config_file({
-                'theme': 'dark', 'preset': 'dracula',
+                'theme': 'dracula',
                 'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
             })
         assert os.path.exists(p)
         with open(p) as f:
-            assert json.load(f)['preset'] == 'dracula'
+            saved = json.load(f)
+        assert saved['theme'] == 'dracula'
+        assert 'preset' not in saved
 
     def test_overwrites_existing(self, tmp_path):
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
-            json.dump({'theme': 'light'}, f)
+            json.dump({'theme': 'github'}, f)
         with patch('config.CONFIG_PATH', p):
             _reload_config().save_config_file({
-                'theme': 'dark', 'preset': 'nord',
+                'theme': 'nord',
                 'window': {'width': 800, 'height': 600, 'x': 0, 'y': 0},
             })
         with open(p) as f:
-            assert json.load(f)['theme'] == 'dark'
+            assert json.load(f)['theme'] == 'nord'
 
     def test_save_config_preserves_recent(self, tmp_path):
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
             json.dump({
-                'theme': 'dark', 'preset': 'github-dark',
+                'theme': 'github-dark',
                 'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
                 'recent': ['C:/keep.md'],
             }, f)
@@ -113,17 +122,18 @@ class TestSaveConfig:
             api = Api('x.md', 'x.md')
             api._window = MagicMock(
                 fullscreen=False, x=10, y=20, width=800, height=600)
-            api.save_config({'theme': 'light'})
+            api.save_config({'theme': 'monokai'})
         with open(p) as f:
             saved = json.load(f)
-        assert saved['theme'] == 'light'
+        assert saved['theme'] == 'monokai'
         assert saved['recent'] == ['C:/keep.md']
+        assert 'preset' not in saved
 
     def test_save_geometry_preserves_recent(self, tmp_path):
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
             json.dump({
-                'theme': 'dark', 'preset': 'github-dark',
+                'theme': 'github-dark',
                 'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
                 'recent': ['C:/keep.md'],
             }, f)
@@ -271,7 +281,7 @@ class TestWindowGeometry:
         p = str(tmp_path / 'config.json')
         with open(p, 'w') as f:
             json.dump({
-                'theme': 'dark', 'preset': 'github-dark',
+                'theme': 'github-dark',
                 'window': {'width': 900, 'height': 700, 'x': 0, 'y': 0},
             }, f)
         with patch('config.CONFIG_PATH', p):

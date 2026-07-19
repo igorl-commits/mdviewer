@@ -1,6 +1,6 @@
 # mdviewer
 
-Lightweight Windows 11 markdown viewer. Opens `.md` files natively via "Open with…". Frameless window, theme/preset menu, 8 syntax presets, persistent layout.
+Lightweight Windows 11 markdown viewer. Opens `.md` files natively via "Open with…". Frameless window, 8 full app themes (chrome + code), persistent layout.
 
 ![mdviewer screenshot](docs/screenshot.png)
 
@@ -8,13 +8,13 @@ Lightweight Windows 11 markdown viewer. Opens `.md` files natively via "Open wit
 
 - **Open with** — register as a handler for `.md` files (no admin needed)
 - **Frameless window** — no OS title bar; drag body to move, drag edges to resize
-- **Right-click or gear menu** — theme cycle (dark/light/system), syntax preset, recent files
-- **8 syntax presets** — GitHub Dark/Light, Dracula, Monokai, Nord, One Dark Pro, Solarized Dark, VS2015 Dark
+- **Right-click or gear menu** — app theme (chrome + syntax), recent files
+- **8 themes** — GitHub Dark/Light, Dracula, Monokai, Nord, One Dark Pro, Solarized Dark, VS2015 Dark
 - **Snap buttons** (hover top-right) — doc width, half-left, half-right, fullscreen
 - **Live reload** — external edits to the open file refresh automatically
 - **Ctrl+F** — in-document search
 - **Drag & drop** — drop a `.md` onto the window to view in place
-- **Persistent state** — window position/size, theme, preset, recent files saved on close
+- **Persistent state** — window position/size, theme, recent files saved on close
 - **F11** — fullscreen toggle
 - **Offline** — all JS/CSS assets bundled in the exe; no network needed
 
@@ -70,14 +70,13 @@ Portable: place `config.json` next to `mdviewer.exe` (or `mdviewer.py` in dev) t
 
 ```json
 {
-  "theme": "dark",
-  "preset": "github-dark",
+  "theme": "github-dark",
   "window": { "width": 900, "height": 700, "x": 200, "y": 150 },
   "recent": ["C:\\path\\to\\file.md"]
 }
 ```
 
-`theme` may be `system` (follows OS light/dark while running). Delete config to reset.
+`theme` is the full app look (page chrome + code highlighting). Delete config to reset.
 
 ## Architecture notes
 

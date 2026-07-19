@@ -11,7 +11,7 @@ Windows 11 offline markdown viewer. Entry point `mdviewer.py` wires focused modu
 | `mdviewer.py` | Entry point: CLI/file dialog, window construction, file watcher, event wiring |
 | `debug.py` | `_DEBUG`, `_dlog`, logging init (leaf — no app imports) |
 | `assets.py` | Generated base64 bundle (`MARKDOWN_IT_JS`, `HLJS_JS`, `HLJS_THEMES`) |
-| `config.py` | `CONFIG_PATH`, `DEFAULTS`, `PRESETS`, load/save, recent, encoding, version, OS dark theme |
+| `config.py` | `CONFIG_PATH`, `DEFAULTS`, `THEMES`, load/save, recent, encoding, version |
 | `geometry.py` | Win32 geometry, clamp, reading-width constants, `WS_THICKFRAME` helpers |
 | `api.py` | pywebview `Api` bridge (JS-callable surface) |
 | `template.py` | `build_html()` HTML/CSS/JS template string |
@@ -23,8 +23,8 @@ Windows 11 offline markdown viewer. Entry point `mdviewer.py` wires focused modu
 
 ### Config (`config.py`)
 
-Schema keys in `DEFAULTS`: `theme`, `preset`, `window`, `recent`.  
-`theme` may be `system` — never resolve to `dark`/`light` in `load_config` (only at paint time in `build_html` / JS).  
+Schema keys in `DEFAULTS`: `theme`, `window`, `recent`.  
+`theme` is an **app theme** key (`github-dark`, `dracula`, …) — chrome + syntax colors together. Not `dark`/`light`/`system` (legacy values migrate via old `preset` if present).  
 Config path: `%APPDATA%\mdviewer\config.json`, or `config.json` beside exe/script if present (portable mode).  
 `window` x/y/width/height are **pywebview logical pixels** (not Win32 physical) — use `_geometry_from_window()` for persistence; keep `GetWindowRect` for snap math only.
 
@@ -74,5 +74,5 @@ python -m py_compile mdviewer.py debug.py assets.py config.py geometry.py api.py
 ## Child DOX Index
 
 - `tests/AGENTS.md` — test layout and conventions
-- `CONTEXT.md` — domain glossary (theme vs preset, snap, portable mode, recent files)
+- `CONTEXT.md` — domain glossary (theme, snap, portable mode, recent files)
 - `docs/adr/` — architecture decisions (offline asset embedding, frameless window, client-side rendering, file association)

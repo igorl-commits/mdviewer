@@ -1,51 +1,47 @@
-// Theme-cycle logic test. Extracts effectiveTheme()/nextTheme() from the JS
-// template in template.py and verifies no click is ever a visual no-op.
+// App-theme smoke test. Verifies every THEME_LIST key has chrome CSS and HLJS CSS
+// wired in template.py (no light/dark/system cycle anymore).
 // Run: node tests/test_theme_cycle.mjs
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'template.py'), 'utf8');
-const m = src.match(/\/\/ THEME-CYCLE-LOGIC-START([\s\S]*?)\/\/ THEME-CYCLE-LOGIC-END/);
-if (!m) { console.error('FAIL: theme-cycle logic markers not found in template.py'); process.exit(1); }
+
+const expected = [
+  'github-dark',
+  'github',
+  'dracula',
+  'monokai',
+  'nord',
+  'atom-one-dark',
+  'solarized-dark',
+  'vs2015',
+];
 
 let failures = 0;
-function check(name, actual, expected) {
-  if (actual === expected) { console.log(`ok   ${name}`); }
-  else { console.error(`FAIL ${name}: got ${actual}, expected ${expected}`); failures++; }
+function check(name, ok, detail = '') {
+  if (ok) console.log(`ok   ${name}`);
+  else { console.error(`FAIL ${name}${detail ? ': ' + detail : ''}`); failures++; }
 }
 
-function makeScope(systemDark) {
-  // The extracted JS reads `window.matchMedia` and `currentTheme` from scope.
-  const body = `
-    const window = { matchMedia: q => ({ matches: ${systemDark} }) };
-    let currentTheme = theme;
-    ${m[1]}
-    return { eff: effectiveTheme(theme), next: nextTheme() };
-  `;
-  return new Function('theme', body);
+// No legacy light/dark/system app-theme cycle
+check('no effectiveTheme()', !src.includes('function effectiveTheme'));
+check('no nextTheme()', !src.includes('function nextTheme'));
+check('no prefers-color-scheme listener for system theme',
+  !src.includes("currentTheme === 'system'"));
+check('no Switch to Light menu', !src.includes('Switch to Light'));
+check('no Follow System menu', !src.includes('Follow System'));
+
+for (const key of expected) {
+  check(`chrome CSS [data-theme="${key}"]`, src.includes(`[data-theme="${key}"]`));
 }
 
-for (const systemDark of [true, false]) {
-  const run = makeScope(systemDark);
-  const sys = systemDark ? 'dark' : 'light';
-  const label = `system=${sys}`;
+check('setTheme function present', src.includes('function setTheme(key)'));
+check('menu label Theme (not Syntax Theme)', src.includes("textContent = 'Theme'"));
+check('persists theme only', src.includes('save_config({theme: currentTheme})'));
 
-  for (const theme of ['dark', 'light', 'system']) {
-    const { eff, next } = run(theme);
-    // effectiveTheme resolves 'system' to the OS appearance
-    check(`${label} effective(${theme})`, eff, theme === 'system' ? sys : theme);
-    // the cardinal rule: the next theme must look different from the current one
-    const nextEff = run(next).eff;
-    if (nextEff === eff) { console.error(`FAIL ${label} next(${theme})=${next} is a visual no-op`); failures++; }
-    else { console.log(`ok   ${label} next(${theme})=${next} visibly changes`); }
-  }
-
-  // exact transitions
-  check(`${label} next(dark)`, run('dark').next, 'light');
-  check(`${label} next(light)`, run('light').next, systemDark ? 'system' : 'dark');
-  check(`${label} next(system)`, run('system').next, systemDark ? 'light' : 'dark');
+if (failures) {
+  console.error(`\n${failures} failure(s)`);
+  process.exit(1);
 }
-
-if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
-console.log('\nall theme-cycle tests passed');
+console.log('\nall theme tests passed');

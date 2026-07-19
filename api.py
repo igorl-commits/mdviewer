@@ -94,9 +94,8 @@ class Api:
     def save_config(self, data: dict) -> None:
         _dlog('Api.save_config partial=%s', data)
         current = load_config()
-        for k in ('theme', 'preset'):
-            if k in data:
-                current[k] = data[k]
+        if 'theme' in data:
+            current['theme'] = data['theme']
         rect = _geometry_from_window(self)
         if rect:
             x, y, w, h = rect

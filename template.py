@@ -2,15 +2,13 @@
 import json
 
 from assets import HLJS_JS, HLJS_THEMES, MARKDOWN_IT_JS
-from config import APP_VERSION, PRESETS, _is_windows_dark_theme
+from config import APP_VERSION, THEMES
 
 def build_html(config: dict) -> str:
-    presets_json      = json.dumps(HLJS_THEMES)
-    presets_list_json = json.dumps(PRESETS)
-    stored_theme      = config.get('theme', 'dark')
-    init_theme        = stored_theme if stored_theme != 'system' else ('dark' if _is_windows_dark_theme() else 'light')
-    init_preset       = config['preset']
-    version           = APP_VERSION
+    hljs_json       = json.dumps(HLJS_THEMES)
+    themes_list_json = json.dumps(THEMES)
+    init_theme      = config.get('theme', 'github-dark')
+    version         = APP_VERSION
 
     return (
         """<!DOCTYPE html>
@@ -19,15 +17,46 @@ def build_html(config: dict) -> str:
 <meta charset="utf-8">
 <style id="hljs-theme"></style>
 <style>
-:root {
-  --bg:#1e1e2e;--fg:#cdd6f4;--heading:#cba6f7;--link:#89b4fa;
-  --code-bg:#313244;--border:#45475a;--muted:#6c7086;
-  --menu-bg:#2a2a3e;--menu-border:#45475a;--menu-hover:#313244;--menu-fg:#cdd6f4;
+/* App chrome palettes — one full look per theme key (matches highlight.js pack). */
+:root, [data-theme="github-dark"] {
+  --bg:#0d1117;--fg:#e6edf3;--heading:#e6edf3;--link:#2f81f7;
+  --code-bg:#161b22;--border:#30363d;--muted:#8b949e;
+  --menu-bg:#161b22;--menu-border:#30363d;--menu-hover:#21262d;--menu-fg:#e6edf3;
 }
-[data-theme="light"] {
-  --bg:#ffffff;--fg:#24292f;--heading:#6639ba;--link:#0969da;
-  --code-bg:#f6f8fa;--border:#d0d7de;--muted:#57606a;
-  --menu-bg:#ffffff;--menu-border:#d0d7de;--menu-hover:#f6f8fa;--menu-fg:#24292f;
+[data-theme="github"] {
+  --bg:#ffffff;--fg:#1f2328;--heading:#1f2328;--link:#0969da;
+  --code-bg:#f6f8fa;--border:#d0d7de;--muted:#656d76;
+  --menu-bg:#ffffff;--menu-border:#d0d7de;--menu-hover:#f6f8fa;--menu-fg:#1f2328;
+}
+[data-theme="dracula"] {
+  --bg:#282a36;--fg:#f8f8f2;--heading:#bd93f9;--link:#8be9fd;
+  --code-bg:#21222c;--border:#44475a;--muted:#6272a4;
+  --menu-bg:#21222c;--menu-border:#44475a;--menu-hover:#44475a;--menu-fg:#f8f8f2;
+}
+[data-theme="monokai"] {
+  --bg:#272822;--fg:#f8f8f2;--heading:#a6e22e;--link:#66d9ef;
+  --code-bg:#1e1f1c;--border:#49483e;--muted:#75715e;
+  --menu-bg:#1e1f1c;--menu-border:#49483e;--menu-hover:#3e3d32;--menu-fg:#f8f8f2;
+}
+[data-theme="nord"] {
+  --bg:#2e3440;--fg:#d8dee9;--heading:#88c0d0;--link:#81a1c1;
+  --code-bg:#3b4252;--border:#4c566a;--muted:#616e88;
+  --menu-bg:#3b4252;--menu-border:#4c566a;--menu-hover:#434c5e;--menu-fg:#eceff4;
+}
+[data-theme="atom-one-dark"] {
+  --bg:#282c34;--fg:#abb2bf;--heading:#e06c75;--link:#61afef;
+  --code-bg:#21252b;--border:#3e4451;--muted:#5c6370;
+  --menu-bg:#21252b;--menu-border:#3e4451;--menu-hover:#2c313a;--menu-fg:#abb2bf;
+}
+[data-theme="solarized-dark"] {
+  --bg:#002b36;--fg:#839496;--heading:#268bd2;--link:#2aa198;
+  --code-bg:#073642;--border:#586e75;--muted:#657b83;
+  --menu-bg:#073642;--menu-border:#586e75;--menu-hover:#094352;--menu-fg:#93a1a1;
+}
+[data-theme="vs2015"] {
+  --bg:#1e1e1e;--fg:#d4d4d4;--heading:#569cd6;--link:#4ec9b0;
+  --code-bg:#252526;--border:#3c3c3c;--muted:#808080;
+  --menu-bg:#252526;--menu-border:#3c3c3c;--menu-hover:#2a2d2e;--menu-fg:#cccccc;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -166,44 +195,20 @@ html.scrolling,html:hover{scrollbar-color:rgba(128,128,128,.3) transparent}
 <script>__MARKDOWN_IT_JS__</script>
 <script>__HLJS_JS__</script>
 <script>
-const THEMES = __PRESETS_JSON__;
-const PRESETS = __PRESETS_LIST_JSON__;
+const HLJS_CSS = __HLJS_JSON__;
+const THEME_LIST = __THEMES_LIST_JSON__;
 
-let currentTheme  = '__STORED_THEME__';   // can be 'dark', 'light', or 'system'
-let currentPreset = '__PRESET__';
+let currentTheme = '__THEME__';
 
 const hljsStyle = document.getElementById('hljs-theme');
 const ctxMenu   = document.getElementById('ctx-menu');
 
-// THEME-CYCLE-LOGIC-START
-function effectiveTheme(t) {
-  if (t !== 'system') return t;
-  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  return isDark ? 'dark' : 'light';
-}
-
-// Cycle dark -> light -> system -> dark, skipping any state that would look
-// identical to the current appearance — every click must visibly change the page.
-function nextTheme() {
-  const order = {dark: ['light', 'system'], light: ['system', 'dark'], system: ['dark', 'light']};
-  const cur = effectiveTheme(currentTheme);
-  for (const cand of (order[currentTheme] || ['dark', 'light'])) {
-    if (effectiveTheme(cand) !== cur) return cand;
-  }
-  return cur === 'dark' ? 'light' : 'dark';
-}
-// THEME-CYCLE-LOGIC-END
-
-function setTheme(t) {
-  currentTheme = t;
-  document.body.dataset.theme = effectiveTheme(t);
-  persistSettings();
-}
-
-function setPreset(key) {
-  currentPreset = key;
-  hljsStyle.textContent = THEMES[key] || '';
-  ctxMenu.querySelectorAll('.preset-item').forEach(el => {
+function setTheme(key) {
+  if (!HLJS_CSS[key] && !THEME_LIST.some(([k]) => k === key)) return;
+  currentTheme = key;
+  document.body.dataset.theme = key;
+  hljsStyle.textContent = HLJS_CSS[key] || '';
+  ctxMenu.querySelectorAll('.theme-item').forEach(el => {
     el.textContent = (el.dataset.key === key ? '\\u2713  ' : '    ') + el.dataset.label;
     el.classList.toggle('active', el.dataset.key === key);
   });
@@ -212,40 +217,12 @@ function setPreset(key) {
 
 function persistSettings() {
   if (window.pywebview && window.pywebview.api && window.pywebview.api.save_config) {
-    pywebview.api.save_config({theme: currentTheme, preset: currentPreset});
+    pywebview.api.save_config({theme: currentTheme});
   }
-}
-
-if (window.matchMedia) {
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (currentTheme === 'system') {
-      document.body.dataset.theme = effectiveTheme('system');
-    }
-  });
 }
 
 async function buildMenu(x, y) {
   ctxMenu.replaceChildren();
-
-  // Theme row
-  // Label names the *next* state from nextTheme(), which skips visual no-ops.
-  const themeItem = document.createElement('div');
-  themeItem.className = 'ctx-item';
-  const nextT = nextTheme();
-  if (nextT === 'light') {
-    themeItem.textContent = '\\u2600  Switch to Light';
-  } else if (nextT === 'system') {
-    themeItem.textContent = '\\u2699\\uFE0F  Follow System';
-  } else {
-    themeItem.textContent = '\\uD83C\\uDF19  Switch to Dark';
-  }
-  themeItem.onclick = () => {
-    setTheme(nextT);
-    closeMenu();
-  };
-  ctxMenu.appendChild(themeItem);
-
-  ctxMenu.appendChild(Object.assign(document.createElement('div'), {className: 'ctx-divider'}));
 
   // Recent files (lightweight). pywebview API calls return Promises — must await.
   const recent = (window.pywebview && window.pywebview.api && window.pywebview.api.get_recent_files)
@@ -276,17 +253,17 @@ async function buildMenu(x, y) {
 
   const lbl = document.createElement('div');
   lbl.className = 'ctx-label';
-  lbl.textContent = 'Syntax Theme';
+  lbl.textContent = 'Theme';
   ctxMenu.appendChild(lbl);
 
-  PRESETS.forEach(([key, label]) => {
+  THEME_LIST.forEach(([key, label]) => {
     const item = document.createElement('div');
-    item.className = 'ctx-item preset-item';
+    item.className = 'ctx-item theme-item';
     item.dataset.key   = key;
     item.dataset.label = label;
-    item.textContent   = (key === currentPreset ? '\\u2713  ' : '    ') + label;
-    if (key === currentPreset) item.classList.add('active');
-    item.onclick = () => { setPreset(key); closeMenu(); };
+    item.textContent   = (key === currentTheme ? '\\u2713  ' : '    ') + label;
+    if (key === currentTheme) item.classList.add('active');
+    item.onclick = () => { setTheme(key); closeMenu(); };
     ctxMenu.appendChild(item);
   });
 
@@ -565,7 +542,6 @@ async function init() {
     const frag = document.createRange().createContextualFragment(rendered);
     contentEl.replaceChildren(frag);
     await resolveContentImages(contentEl);
-    setPreset(currentPreset);
     setTheme(currentTheme);
     jslog('init: done');
   } catch (e) {
@@ -641,10 +617,8 @@ setTimeout(() => {
 </html>"""
         .replace('__MARKDOWN_IT_JS__', MARKDOWN_IT_JS)
         .replace('__HLJS_JS__',        HLJS_JS)
-        .replace('__PRESETS_JSON__',      presets_json)
-        .replace('__PRESETS_LIST_JSON__', presets_list_json)
+        .replace('__HLJS_JSON__',      hljs_json)
+        .replace('__THEMES_LIST_JSON__', themes_list_json)
         .replace('__THEME__',        init_theme)
-        .replace('__STORED_THEME__', stored_theme)
-        .replace('__PRESET__',       init_preset)
         .replace('__VERSION__',      version)
     )
