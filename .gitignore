@@ -8,3 +8,5 @@ dist/
 version.txt
 mcps/
 .serena/
+.tokensave/
+tmp/
