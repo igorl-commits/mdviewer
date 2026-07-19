@@ -119,7 +119,7 @@ table{border-collapse:collapse;margin:1em 0;width:100%}
 th,td{border:1px solid var(--border);padding:.5em .9em;text-align:left}
 th{background:var(--code-bg);font-weight:600}
 tr:nth-child(even) td{background:rgba(128,128,128,.05)}
-img{max-width:100%;border-radius:4px}
+img{max-width:100%;border-radius:4px;border:1px solid var(--border)}
 hr{border:none;border-top:1px solid var(--border);margin:1.5em 0}
 input[type="checkbox"]{margin-right:.4em;-webkit-app-region:no-drag}
 /* Floating auto-hiding scrollbar — overlay only, no track, fades in on use */
