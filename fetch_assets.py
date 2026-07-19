@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Downloads JS/CSS assets and patches the ASSET BUNDLE block in mdviewer.py.
+Downloads JS/CSS assets and patches the ASSET BUNDLE block in assets.py.
 Run once: python fetch_assets.py
 """
 import urllib.request
@@ -68,13 +68,13 @@ lines.append('# -- END ASSET BUNDLE --------------------------------------------
 
 replacement = '\n'.join(lines)
 
-target = os.path.join(os.path.dirname(__file__), 'mdviewer.py')
+target = os.path.join(os.path.dirname(__file__), 'assets.py')
 with open(target, 'r', encoding='utf-8') as f:
     src = f.read()
 
 pattern = r'# -- ASSET BUNDLE.*?# -- END ASSET BUNDLE -+\n?'
 if not re.search(pattern, src, re.DOTALL):
-    print('ERROR: sentinel block not found in mdviewer.py')
+    print('ERROR: sentinel block not found in assets.py')
     sys.exit(1)
 
 src = re.sub(pattern, replacement + '\n', src, flags=re.DOTALL)
