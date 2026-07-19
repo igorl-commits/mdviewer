@@ -318,3 +318,64 @@ class TestSnapApi:
         from api import Api
         assert not hasattr(Api, 'snap_to_half')
         assert not hasattr(Api, 'snap_to_content_width')
+
+
+class TestResolveMedia:
+    """Relative markdown images must resolve against the open .md file's directory.
+
+    The page is an HTML string (no file:// base), so raw src=\"docs/foo.png\" cannot
+    load from disk — resolve_media_ref embeds local files as data URIs.
+    """
+
+    def test_http_passthrough(self):
+        from api import resolve_media_ref
+        url = 'https://example.com/a.png'
+        assert resolve_media_ref(url, r'C:\docs') == url
+
+    def test_data_uri_passthrough(self):
+        from api import resolve_media_ref
+        data = 'data:image/png;base64,aaa'
+        assert resolve_media_ref(data, r'C:\docs') == data
+
+    def test_relative_path_becomes_data_uri(self, tmp_path):
+        from api import resolve_media_ref
+        import base64
+        img = tmp_path / 'shot.png'
+        payload = b'\x89PNG\r\n\x1a\n' + b'fake'
+        img.write_bytes(payload)
+        out = resolve_media_ref('shot.png', str(tmp_path))
+        assert out.startswith('data:image/png;base64,')
+        b64 = out.split(',', 1)[1]
+        assert base64.b64decode(b64) == payload
+
+    def test_nested_relative_path(self, tmp_path):
+        from api import resolve_media_ref
+        import base64
+        sub = tmp_path / 'docs'
+        sub.mkdir()
+        img = sub / 'screenshot.png'
+        img.write_bytes(b'abc')
+        out = resolve_media_ref('docs/screenshot.png', str(tmp_path))
+        assert out.startswith('data:')
+        assert base64.b64decode(out.split(',', 1)[1]) == b'abc'
+
+    def test_missing_file_returns_original(self, tmp_path):
+        from api import resolve_media_ref
+        assert resolve_media_ref('missing.png', str(tmp_path)) == 'missing.png'
+
+    def test_no_base_dir_returns_original(self):
+        from api import resolve_media_ref
+        assert resolve_media_ref('shot.png', None) == 'shot.png'
+
+    def test_api_resolve_media_uses_md_dir(self, tmp_path):
+        from api import Api
+        import base64
+        md = tmp_path / 'README.md'
+        md.write_text('# hi')
+        img = tmp_path / 'docs'
+        img.mkdir()
+        (img / 'screenshot.png').write_bytes(b'xyz')
+        api = Api(str(md), 'README.md')
+        out = api.resolve_media('docs/screenshot.png')
+        assert out.startswith('data:')
+        assert base64.b64decode(out.split(',', 1)[1]) == b'xyz'

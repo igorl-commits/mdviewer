@@ -521,6 +521,24 @@ function jslog(msg) {
   console.log(msg);
 }
 
+// Relative img src cannot load against an HTML-string page (no file base URL).
+// Ask Python to embed local files as data URIs relative to the open .md path.
+async function resolveContentImages(root) {
+  if (!root || !window.pywebview || !window.pywebview.api) return;
+  if (typeof pywebview.api.resolve_media !== 'function') return;
+  const imgs = root.querySelectorAll('img[src]');
+  for (const img of imgs) {
+    const src = img.getAttribute('src');
+    if (!src) continue;
+    try {
+      const resolved = await pywebview.api.resolve_media(src);
+      if (resolved && resolved !== src) img.setAttribute('src', resolved);
+    } catch (e) {
+      jslog('resolve_media failed for ' + src + ': ' + e);
+    }
+  }
+}
+
 async function reloadFromDisk() {
   const contentEl = document.getElementById('content');
   if (!contentEl) return;
@@ -529,6 +547,7 @@ async function reloadFromDisk() {
     const rendered = md.render(raw);
     const frag = document.createRange().createContextualFragment(rendered);
     contentEl.replaceChildren(frag);
+    await resolveContentImages(contentEl);
   } catch (e) {
     jslog('reloadFromDisk failed: ' + e);
   }
@@ -545,6 +564,7 @@ async function init() {
     jslog('init: rendered ' + rendered.length + ' chars of HTML');
     const frag = document.createRange().createContextualFragment(rendered);
     contentEl.replaceChildren(frag);
+    await resolveContentImages(contentEl);
     setPreset(currentPreset);
     setTheme(currentTheme);
     jslog('init: done');

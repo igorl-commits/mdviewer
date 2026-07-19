@@ -83,6 +83,7 @@ Do not rename or reformat those comments. The regex in `fetch_assets.py` matches
 | `_geometry_from_window(api)` | `geometry` | Logical-pixel window rect for config save/restore (not `GetWindowRect`) |
 | `build_html(config)` | `template` | Returns the full HTML page as a string |
 | `Api.snap(mode)` | `api` | Snap window: `'left'`, `'right'`, `'reading'` (reading uses logical px + pywebview resize) |
+| `Api.resolve_media(ref)` | `api` | Relative img src → data URI (page is HTML string, no file base URL) |
 | `Api.save_config(partial)` | `api` | Merge partial dict into config + persist window rect |
 | `main()` / `on_closing` / `on_loaded` | `mdviewer` | Entry wiring; save geometry on close; enable native resize after load |
 

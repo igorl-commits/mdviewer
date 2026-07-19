@@ -1,6 +1,8 @@
 """pywebview JS bridge (Api). Non-callable attrs must be _-prefixed."""
+import base64
 import ctypes
 import json
+import mimetypes
 import os
 
 from config import (
@@ -19,6 +21,43 @@ from geometry import (
     _outer_logical_for_client_logical,
     _work_area_for,
 )
+
+
+def resolve_media_ref(ref: str, base_dir: str | None) -> str:
+    """Resolve a markdown image/src ref for the embedded HTML page.
+
+    Relative paths are joined to *base_dir* (directory of the open .md file) and
+    embedded as data URIs. Remote/data URLs are returned unchanged. Missing
+    files return *ref* unchanged so the broken-image UI stays honest.
+    """
+    if not ref:
+        return ref
+    s = ref.strip()
+    lower = s.lower()
+    if lower.startswith(('http://', 'https://', 'data:', 'blob:')):
+        return s
+    if lower.startswith('file:'):
+        return s
+
+    path_part = s.split('?', 1)[0].split('#', 1)[0]
+    if os.path.isabs(path_part):
+        full = path_part
+    else:
+        if not base_dir:
+            return s
+        full = os.path.normpath(os.path.join(base_dir, path_part))
+
+    if not os.path.isfile(full):
+        return s
+    try:
+        with open(full, 'rb') as f:
+            data = f.read()
+    except OSError:
+        return s
+    mime = mimetypes.guess_type(full)[0] or 'application/octet-stream'
+    b64 = base64.b64encode(data).decode('ascii')
+    return f'data:{mime};base64,{b64}'
+
 
 class Api:
     def __init__(self, md_path: str, title: str):
@@ -43,6 +82,14 @@ class Api:
         data = _read_text_file(self._md_path)
         _dlog('Api.get_file returned %d bytes', len(data))
         return data
+
+    def resolve_media(self, ref: str) -> str:
+        """JS calls this after render to turn relative img src into data URIs."""
+        base = os.path.dirname(self._md_path) if self._md_path else None
+        out = resolve_media_ref(ref, base)
+        if out != ref:
+            _dlog('Api.resolve_media embedded %s (%d chars)', ref, len(out))
+        return out
 
     def save_config(self, data: dict) -> None:
         _dlog('Api.save_config partial=%s', data)
