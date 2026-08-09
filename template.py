@@ -66,12 +66,24 @@ body{
   font-size:15px;line-height:1.7;
   user-select:none;
 }
-#page{max-width:956px;margin:0 auto;padding:36px 48px 64px}
+#page{max-width:956px;margin:0 auto;padding:48px 48px 64px}
 #content,#content *,input,textarea{
   user-select:text;
 }
+#titlebar{
+  position:fixed;top:0;left:0;right:0;height:32px;
+  z-index:180;display:flex;align-items:center;padding:0 12px;
+  background:transparent;color:var(--muted);font-size:11px;letter-spacing:.03em;
+  cursor:move;user-select:none;
+  transition:background .15s ease;
+}
+#titlebar:hover{
+  background:var(--menu-bg);border-bottom:1px solid var(--border);
+}
+#titlebar .tb-label{opacity:0;transition:opacity .15s ease;pointer-events:none}
+#titlebar:hover .tb-label{opacity:.75}
 #controls{
-  position:fixed;top:8px;right:10px;display:flex;gap:4px;
+  position:fixed;top:4px;right:10px;display:flex;gap:4px;
   opacity:0;transition:opacity .2s;z-index:200;
 }
 body:hover #controls{opacity:1}
@@ -171,6 +183,7 @@ html.scrolling,html:hover{scrollbar-color:rgba(128,128,128,.3) transparent}
 </style>
 </head>
 <body data-theme="__THEME__">
+<div id="titlebar" title="Drag to move window"><span class="tb-label">mdviewer</span></div>
 <div id="controls">
   <button class="ctrl-btn" id="btn-tall"  title="Doc width, full height">&#9647;</button>
   <button class="ctrl-btn" id="btn-left"  title="Snap left half">&#9703;</button>
@@ -267,10 +280,48 @@ async function buildMenu(x, y) {
     ctxMenu.appendChild(item);
   });
 
+  positionMenu(x, y);
+}
+
+function positionMenu(x, y) {
   ctxMenu.hidden = false;
   const mw = ctxMenu.offsetWidth, mh = ctxMenu.offsetHeight;
   ctxMenu.style.left = Math.min(x, window.innerWidth  - mw - 8) + 'px';
   ctxMenu.style.top  = Math.min(y, window.innerHeight - mh - 8) + 'px';
+}
+
+function copyTextFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+}
+
+async function copyText(text) {
+  if (!text) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      copyTextFallback(text);
+    }
+  } catch (_) {
+    copyTextFallback(text);
+  }
+}
+
+function buildCopyMenu(text, x, y) {
+  ctxMenu.replaceChildren();
+  const item = document.createElement('div');
+  item.className = 'ctx-item';
+  item.textContent = 'Copy';
+  item.onclick = async () => { await copyText(text); closeMenu(); };
+  ctxMenu.appendChild(item);
+  positionMenu(x, y);
 }
 
 function closeMenu() { ctxMenu.hidden = true; }
@@ -278,8 +329,11 @@ function closeMenu() { ctxMenu.hidden = true; }
 document.addEventListener('contextmenu', e => {
   const target = e.target instanceof Element ? e.target : e.target.parentElement;
   const selection = window.getSelection ? window.getSelection().toString() : '';
-  if (selection && target && target.closest('#content')) return;
   e.preventDefault();
+  if (selection && target && target.closest('#content')) {
+    buildCopyMenu(selection, e.clientX, e.clientY);
+    return;
+  }
   buildMenu(e.clientX, e.clientY);
 });
 document.addEventListener('click', e => { if (!ctxMenu.contains(e.target)) closeMenu(); });
@@ -484,24 +538,32 @@ document.getElementById('btn-right').addEventListener('click', () => pywebview.a
 document.getElementById('btn-full').addEventListener('click',  () => pywebview.api.toggle_fullscreen());
 
 // Window movement: use Win32's native caption-drag loop, not pywebview easy_drag.
-// pywebview's JS drag path uses screenX/clientX math that can jump left on
-// scaled WebView2 displays after a tiny post-click mousemove.
-const DRAG_BLOCK_SELECTOR = [
-  '#controls', '#ctx-menu', '#search-bar', '#content',
-  'button', 'input', 'textarea', 'select', 'option',
-  'a', 'code', 'pre', 'table', 'img', 'mark',
-  '[contenteditable="true"]'
-].join(',');
-
-document.addEventListener('mousedown', e => {
-  if (e.button !== 0) return;
-  if (window.innerWidth - e.clientX <= 12 || window.innerHeight - e.clientY <= 12) return;
-  const target = e.target instanceof Element ? e.target : e.target.parentElement;
-  if (target && target.closest(DRAG_BLOCK_SELECTOR)) return;
-  if (window.pywebview && window.pywebview.api && window.pywebview.api.native_drag) {
-    pywebview.api.native_drag();
+// The WM_NCLBUTTONDOWN(HTCAPTION) trick is ignored by this frameless
+// WinForms/WebView2 window, and pywebview's easy_drag passes deltas into an
+// absolute move (the known "jump" bug). So we trigger a Python-side poll loop
+// that follows the cursor in physical pixels via SetWindowPos.
+function startNativeDrag() {
+  jslog('startNativeDrag: pywebview=' + !!(window.pywebview && window.pywebview.api) +
+        ' hasCustomDrag=' + !!(window.pywebview && window.pywebview.api && window.pywebview.api.custom_drag_begin));
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.custom_drag_begin) {
+    pywebview.api.custom_drag_begin();
   }
-});
+}
+
+const titlebar = document.getElementById('titlebar');
+if (titlebar) {
+  titlebar.addEventListener('mousedown', e => {
+    jslog('titlebar mousedown button=' + e.button);
+    if (e.button !== 0) return;   // left button only
+    e.preventDefault();
+    startNativeDrag();
+  });
+  titlebar.addEventListener('mouseup', () => {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.custom_drag_end) {
+      pywebview.api.custom_drag_end();
+    }
+  });
+}
 // Window resize: native Win32 (WS_THICKFRAME added on load, OS handles edges).
 
 const md = markdownit({
