@@ -51,7 +51,13 @@ def main() -> None:
         html=build_html(config),
         js_api=api,
         frameless=True,
-        easy_drag=True,  # pywebview JS-side drag via -webkit-app-region:drag
+        # Avoid pywebview's JS easy_drag screenX/clientX path on WebView2; it can
+        # compute a bogus x on scaled displays and make the window jump left.
+        # template.py calls Api.native_drag() to enter the Win32 caption-drag loop,
+        # and exposes a slim .pywebview-drag-region titlebar for pywebview's
+        # direct drag-region path (without enabling whole-window easy_drag).
+        easy_drag=False,
+        text_select=True,
         width=win['width'],
         height=win['height'],
         x=x,

@@ -296,6 +296,89 @@ class TestWindowGeometry:
         assert saved == {'width': 1100, 'height': 850, 'x': 250, 'y': 100}
 
 
+class TestNativeWindowDrag:
+    def test_enable_native_resize_is_noop_when_thickframe_already_present(self):
+        import geometry as g
+        user32 = MagicMock()
+        user32.GetWindowLongW.side_effect = [g._WS_THICKFRAME, 0]
+        with patch('ctypes.windll.user32', user32):
+            g._enable_native_resize(0x1234)
+        user32.SetWindowLongW.assert_not_called()
+        user32.SetWindowPos.assert_not_called()
+
+    def test_native_drag_uses_win32_caption_drag_loop(self):
+        from api import Api
+        user32 = MagicMock()
+        api = Api('x.md', 'x.md')
+        with patch('api._find_hwnd', return_value=0x1234), \
+             patch('ctypes.windll.user32', user32):
+            api.native_drag()
+        user32.SetForegroundWindow.assert_called_once_with(0x1234)
+        user32.ReleaseCapture.assert_called_once_with()
+        user32.SendMessageW.assert_called_once_with(0x1234, 0x00A1, 0x0002, 0)
+
+    def test_pywebview_easy_drag_is_disabled(self):
+        import inspect
+        import mdviewer
+        import template
+        src = inspect.getsource(mdviewer.main).replace(' ', '')
+        assert 'easy_drag=False' in src
+        assert 'text_select=True' in src
+        assert 'pywebview.api.custom_drag_begin' in inspect.getsource(template.build_html)
+
+    def test_rendered_markdown_text_is_selectable(self):
+        import inspect
+        import template
+        src = inspect.getsource(template.build_html)
+        assert '#content,#content *,input,textarea' in src
+        assert "'#content'" in src
+
+    def test_selected_content_gets_copy_context_menu(self):
+        import inspect
+        import template
+        src = inspect.getsource(template.build_html)
+        assert 'window.getSelection' in src
+        assert 'buildCopyMenu(selection, e.clientX, e.clientY)' in src
+        assert "item.textContent = 'Copy'" in src
+        assert 'copyTextFallback' in src
+
+    def test_titlebar_is_a_dedicated_drag_handle(self):
+        import inspect
+        import template
+        src = inspect.getsource(template.build_html)
+        assert '<div id="titlebar" title="Drag to move window"><span class="tb-label">mdviewer</span></div>' in src
+        assert '#titlebar{' in src
+        assert '#titlebar:hover{' in src
+        assert "titlebar.addEventListener('mousedown'" in src
+        assert 'startNativeDrag' in src
+        assert 'pywebview.api.custom_drag_begin' in src
+
+    def test_custom_drag_starts_poll_loop_and_tracks_window(self):
+        from api import Api
+        import threading
+        user32 = MagicMock()
+        api = Api('x.md', 'x.md')
+        api._window = MagicMock()
+        # GetCursorPos/GetWindowRect are left as no-op MagicMocks (they fill the
+        # struct via pointer; a Mock just returns without touching it).
+        # Left button released on first check -> the worker loop ends immediately.
+        user32.GetAsyncKeyState.return_value = 0
+
+        started = []
+        real_start = threading.Thread.start
+        def fake_start(self):
+            started.append(True)
+            real_start(self)  # run the single-iteration loop for real (releases immediately)
+
+        with patch('api._find_hwnd', return_value=0x1234), \
+             patch('ctypes.windll.user32', user32), \
+             patch.object(threading.Thread, 'start', fake_start):
+            api.custom_drag_begin()
+            api.custom_drag_end()
+        assert started
+        assert api._custom_drag_active is False
+
+
 class TestReadingSnap:
     def test_target_width_matches_css_border_box(self):
         import geometry as g

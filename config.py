@@ -15,10 +15,10 @@ if 'CONFIG_PATH' not in globals():
 
 
 def _get_version() -> str:
-    """Return '0.<N>' where N is the number of commits in the repo.
+    """Return the app release version (currently '1.0').
 
-    Dev runs use git. Packaged exe reads version.txt (written by build.bat)
-    or MDVIEWER_BUILD_VERSION if set.
+    Packaged exe may override via version.txt (written by build.bat) or the
+    MDVIEWER_BUILD_VERSION env var; dev runs report the release version.
     """
     if getattr(sys, 'frozen', False):
         ver = os.environ.get('MDVIEWER_BUILD_VERSION')
@@ -30,20 +30,7 @@ def _get_version() -> str:
                 return f.read().strip()
         except OSError:
             pass
-        return '0.34'
-    try:
-        import subprocess
-        root = os.path.dirname(os.path.abspath(__file__))
-        count = subprocess.check_output(
-            ["git", "rev-list", "--count", "HEAD"],
-            cwd=root,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        return f"0.{count}"
-    except Exception:
-        pass
-    return '0.34'
+    return '1.0'
 
 
 APP_VERSION = _get_version()

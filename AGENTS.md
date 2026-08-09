@@ -61,7 +61,7 @@ Config path: `%APPDATA%\mdviewer\config.json`, or `config.json` beside exe/scrip
 
 - Prefer lightweight paths: `reloadFromDisk()` + `get_file()` for disk-backed reloads; avoid embedding large markdown in `evaluate_js`.
 - File reads: `_read_text_file()` (utf-8-sig → utf-8 → cp1252).
-- Version: dev uses `git rev-list --count`; frozen exe reads bundled `version.txt` from `build.bat`.
+- Version: fixed release version (`config.APP_VERSION`); frozen exe reads bundled `version.txt` from `build.bat`.
 - Flat modules alongside `mdviewer.py` (not a package directory) — PyInstaller follows the local import graph from the entry script.
 - Standing project principle: keep the app lean, minimal dependencies, no functionality for its own sake. Weigh new dependencies and abstractions against this before adding them. See `docs/adr/` for decisions (assets, frameless, client-side render, file association, unified themes, relative images).
 - Domain language: use **Theme** as in `CONTEXT.md` (full app look). Do not reintroduce separate “preset” or dark/light/system UI modes without an ADR.
