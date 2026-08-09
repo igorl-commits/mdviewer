@@ -173,8 +173,9 @@ def _enable_native_resize(hwnd):
     style = user32.GetWindowLongW(hwnd, _GWL_STYLE)
     exstyle = user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
     new_style = style | _WS_THICKFRAME
-    if style != new_style:
-        user32.SetWindowLongW(hwnd, _GWL_STYLE, new_style)
+    if style == new_style:
+        return
+    user32.SetWindowLongW(hwnd, _GWL_STYLE, new_style)
 
     client_pt = _POINT()
     user32.ClientToScreen(hwnd, ctypes.byref(client_pt))

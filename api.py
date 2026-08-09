@@ -167,6 +167,26 @@ class Api:
             user32.SetForegroundWindow(hwnd)
             user32.SetActiveWindow(hwnd)
 
+    def native_drag(self) -> None:
+        """Start a native Win32 window move from a draggable page area.
+
+        pywebview's easy_drag path computes a new absolute position in JS from
+        screenX/clientX. On scaled WebView2 displays that can produce a bogus x
+        coordinate, so a tiny post-click mousemove may make the window jump left.
+        Let Windows run the caption-drag loop instead.
+        Must be public: JS calls it through pywebview.api.native_drag().
+        """
+        hwnd = _find_hwnd(self._title) or self._ensure_hwnd()
+        if not hwnd:
+            return
+        try:
+            user32 = ctypes.windll.user32
+            user32.SetForegroundWindow(hwnd)
+            user32.ReleaseCapture()
+            user32.SendMessageW(hwnd, 0x00A1, 0x0002, 0)  # WM_NCLBUTTONDOWN, HTCAPTION
+        except Exception as e:
+            _dlog('Api.native_drag FAILED: %s', e)
+
     def close_window(self) -> None:
         _dlog('Api.close_window')
         self._save_geometry()

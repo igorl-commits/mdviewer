@@ -296,6 +296,36 @@ class TestWindowGeometry:
         assert saved == {'width': 1100, 'height': 850, 'x': 250, 'y': 100}
 
 
+class TestNativeWindowDrag:
+    def test_enable_native_resize_is_noop_when_thickframe_already_present(self):
+        import geometry as g
+        user32 = MagicMock()
+        user32.GetWindowLongW.side_effect = [g._WS_THICKFRAME, 0]
+        with patch('ctypes.windll.user32', user32):
+            g._enable_native_resize(0x1234)
+        user32.SetWindowLongW.assert_not_called()
+        user32.SetWindowPos.assert_not_called()
+
+    def test_native_drag_uses_win32_caption_drag_loop(self):
+        from api import Api
+        user32 = MagicMock()
+        api = Api('x.md', 'x.md')
+        with patch('api._find_hwnd', return_value=0x1234), \
+             patch('ctypes.windll.user32', user32):
+            api.native_drag()
+        user32.SetForegroundWindow.assert_called_once_with(0x1234)
+        user32.ReleaseCapture.assert_called_once_with()
+        user32.SendMessageW.assert_called_once_with(0x1234, 0x00A1, 0x0002, 0)
+
+    def test_pywebview_easy_drag_is_disabled(self):
+        import inspect
+        import mdviewer
+        import template
+        src = inspect.getsource(mdviewer.main).replace(' ', '')
+        assert 'easy_drag=False' in src
+        assert 'pywebview.api.native_drag' in inspect.getsource(template.build_html)
+
+
 class TestReadingSnap:
     def test_target_width_matches_css_border_box(self):
         import geometry as g

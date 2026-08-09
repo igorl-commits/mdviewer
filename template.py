@@ -64,21 +64,21 @@ body{
   background:var(--bg);color:var(--fg);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   font-size:15px;line-height:1.7;
-  -webkit-app-region:drag;user-select:none;
+  user-select:none;
 }
-#page{max-width:956px;margin:0 auto;padding:36px 48px 64px;-webkit-app-region:drag}
+#page{max-width:956px;margin:0 auto;padding:36px 48px 64px}
 #page a,#page code,#page pre,#page table,#page input,#page img{
-  -webkit-app-region:no-drag;user-select:text;
+  user-select:text;
 }
 #controls{
   position:fixed;top:8px;right:10px;display:flex;gap:4px;
-  opacity:0;transition:opacity .2s;z-index:200;-webkit-app-region:no-drag;
+  opacity:0;transition:opacity .2s;z-index:200;
 }
 body:hover #controls{opacity:1}
 
 #version{
   position:fixed;bottom:6px;left:10px;font-size:10px;color:var(--muted);
-  opacity:0;transition:opacity .2s;z-index:150;-webkit-app-region:no-drag;
+  opacity:0;transition:opacity .2s;z-index:150;
   pointer-events:none;
 }
 body:hover #version{opacity:0.6}
@@ -109,13 +109,13 @@ mark.search-current {
 .ctrl-btn{
   background:rgba(128,128,128,.15);border:none;border-radius:5px;
   color:var(--fg);cursor:pointer;font-size:14px;line-height:1;
-  padding:5px 9px;-webkit-app-region:no-drag;transition:background .15s;
+  padding:5px 9px;transition:background .15s;
 }
 .ctrl-btn:hover{background:rgba(128,128,128,.35)}
 #ctx-menu{
   position:fixed;background:var(--menu-bg);border:1px solid var(--menu-border);
   border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.35);
-  padding:5px 0;min-width:190px;z-index:1000;-webkit-app-region:no-drag;
+  padding:5px 0;min-width:190px;z-index:1000;
 }
 .ctx-item{cursor:pointer;font-size:13px;padding:6px 14px;color:var(--menu-fg);white-space:nowrap}
 .ctx-item:hover{background:var(--menu-hover)}
@@ -136,12 +136,12 @@ code{
   background:var(--code-bg);border-radius:4px;
   font-family:'Cascadia Code','Fira Code','Consolas',monospace;
   font-size:.88em;padding:.15em .4em;
-  -webkit-app-region:no-drag;user-select:text;
+  user-select:text;
 }
 pre{
   background:var(--code-bg);border-radius:8px;margin:1em 0;
   overflow-x:auto;padding:1em 1.2em;
-  -webkit-app-region:no-drag;user-select:text;
+  user-select:text;
 }
 pre code{background:none;font-size:.9em;padding:0}
 table{border-collapse:collapse;margin:1em 0;width:100%}
@@ -150,7 +150,7 @@ th{background:var(--code-bg);font-weight:600}
 tr:nth-child(even) td{background:rgba(128,128,128,.05)}
 img{max-width:100%;border-radius:4px;border:1px solid var(--border)}
 hr{border:none;border-top:1px solid var(--border);margin:1.5em 0}
-input[type="checkbox"]{margin-right:.4em;-webkit-app-region:no-drag}
+input[type="checkbox"]{margin-right:.4em}
 /* Floating auto-hiding scrollbar — overlay only, no track, fades in on use */
 ::-webkit-scrollbar{width:8px;height:8px;background:transparent}
 ::-webkit-scrollbar-track{background:transparent;border:none}
@@ -476,7 +476,26 @@ document.getElementById('btn-tall').addEventListener('click', () => {
 document.getElementById('btn-left').addEventListener('click',  () => pywebview.api.snap('left'));
 document.getElementById('btn-right').addEventListener('click', () => pywebview.api.snap('right'));
 document.getElementById('btn-full').addEventListener('click',  () => pywebview.api.toggle_fullscreen());
-// Window movement: pywebview easy_drag handles drag via -webkit-app-region: drag.
+
+// Window movement: use Win32's native caption-drag loop, not pywebview easy_drag.
+// pywebview's JS drag path uses screenX/clientX math that can jump left on
+// scaled WebView2 displays after a tiny post-click mousemove.
+const DRAG_BLOCK_SELECTOR = [
+  '#controls', '#ctx-menu', '#search-bar',
+  'button', 'input', 'textarea', 'select', 'option',
+  'a', 'code', 'pre', 'table', 'img', 'mark',
+  '[contenteditable="true"]'
+].join(',');
+
+document.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  if (window.innerWidth - e.clientX <= 12 || window.innerHeight - e.clientY <= 12) return;
+  const target = e.target instanceof Element ? e.target : e.target.parentElement;
+  if (target && target.closest(DRAG_BLOCK_SELECTOR)) return;
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.native_drag) {
+    pywebview.api.native_drag();
+  }
+});
 // Window resize: native Win32 (WS_THICKFRAME added on load, OS handles edges).
 
 const md = markdownit({
