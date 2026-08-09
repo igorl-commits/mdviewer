@@ -325,6 +325,20 @@ class TestNativeWindowDrag:
         assert 'easy_drag=False' in src
         assert 'pywebview.api.native_drag' in inspect.getsource(template.build_html)
 
+    def test_rendered_markdown_text_is_selectable(self):
+        import inspect
+        import template
+        src = inspect.getsource(template.build_html)
+        assert '#content,#content *,input,textarea' in src
+        assert "'#content'" in src
+
+    def test_selected_content_can_use_native_copy_context_menu(self):
+        import inspect
+        import template
+        src = inspect.getsource(template.build_html)
+        assert 'window.getSelection' in src
+        assert "target.closest('#content')) return" in src
+
 
 class TestReadingSnap:
     def test_target_width_matches_css_border_box(self):

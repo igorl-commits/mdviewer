@@ -67,7 +67,7 @@ body{
   user-select:none;
 }
 #page{max-width:956px;margin:0 auto;padding:36px 48px 64px}
-#page a,#page code,#page pre,#page table,#page input,#page img{
+#content,#content *,input,textarea{
   user-select:text;
 }
 #controls{
@@ -275,7 +275,13 @@ async function buildMenu(x, y) {
 
 function closeMenu() { ctxMenu.hidden = true; }
 
-document.addEventListener('contextmenu', e => { e.preventDefault(); buildMenu(e.clientX, e.clientY); });
+document.addEventListener('contextmenu', e => {
+  const target = e.target instanceof Element ? e.target : e.target.parentElement;
+  const selection = window.getSelection ? window.getSelection().toString() : '';
+  if (selection && target && target.closest('#content')) return;
+  e.preventDefault();
+  buildMenu(e.clientX, e.clientY);
+});
 document.addEventListener('click', e => { if (!ctxMenu.contains(e.target)) closeMenu(); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeMenu();
@@ -481,7 +487,7 @@ document.getElementById('btn-full').addEventListener('click',  () => pywebview.a
 // pywebview's JS drag path uses screenX/clientX math that can jump left on
 // scaled WebView2 displays after a tiny post-click mousemove.
 const DRAG_BLOCK_SELECTOR = [
-  '#controls', '#ctx-menu', '#search-bar',
+  '#controls', '#ctx-menu', '#search-bar', '#content',
   'button', 'input', 'textarea', 'select', 'option',
   'a', 'code', 'pre', 'table', 'img', 'mark',
   '[contenteditable="true"]'
