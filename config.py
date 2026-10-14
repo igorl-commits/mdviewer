@@ -16,7 +16,7 @@ if 'CONFIG_PATH' not in globals():
 
 
 def _get_version() -> str:
-    """Return the app release version (currently '1.0').
+    """Return the app release version (currently '1.1').
 
     Packaged exe may override via version.txt (written by build.bat) or the
     MDVIEWER_BUILD_VERSION env var; dev runs report the release version.
@@ -31,7 +31,7 @@ def _get_version() -> str:
                 return f.read().strip()
         except OSError:
             pass
-    return '1.0'
+    return '1.1'
 
 
 APP_VERSION = _get_version()
