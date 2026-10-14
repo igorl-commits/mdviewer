@@ -497,6 +497,44 @@ document.addEventListener('drop', e => {
   btnClose && btnClose.addEventListener('click', closeSearch);
 })();
 
+// Links: never let the webview navigate away from the app page.
+//   #anchor        -> scroll to the matching heading in #content
+//   http(s)/mailto -> Python opens it in the default browser / mail client
+//   anything else  -> ignored
+function slugify(t) {
+  return String(t).trim().toLowerCase()
+    .replace(/[^\\w\\s-]/g, '').replace(/\\s+/g, '-');
+}
+function scrollToAnchor(frag) {
+  let id = frag;
+  try { id = decodeURIComponent(frag); } catch (_) {}
+  if (!id) { window.scrollTo(0, 0); return; }
+  const content = document.getElementById('content');
+  let target = document.getElementById(id) ||
+    (content && content.querySelector('[name="' + CSS.escape(id) + '"]'));
+  if (!target && content) {
+    const want = slugify(id);
+    target = Array.from(content.querySelectorAll('h1,h2,h3,h4,h5,h6'))
+      .find(h => slugify(h.textContent) === want);
+  }
+  if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('#content a[href]');
+  if (!a) return;
+  e.preventDefault();
+  const href = (a.getAttribute('href') || '').trim();
+  if (href.startsWith('#')) { scrollToAnchor(href.slice(1)); return; }
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(href);
+  const scheme = m ? m[1].toLowerCase() : '';
+  if (scheme === 'http' || scheme === 'https' || scheme === 'mailto') {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external) {
+      pywebview.api.open_external(href);
+    }
+  }
+  // Relative paths, file:, javascript:, etc. are ignored.
+}, true);
+
 // Simple image lightbox (click any rendered image to enlarge)
 const imgOverlay = document.getElementById('img-overlay');
 const overlayImg = imgOverlay ? imgOverlay.querySelector('img') : null;

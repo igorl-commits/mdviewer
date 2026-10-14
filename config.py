@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import threading
 
 if 'CONFIG_PATH' not in globals():
     # Portable mode: if config.json lives next to the exe/script, use it.
@@ -59,6 +60,10 @@ DEFAULTS: dict = {
 
 _LEGACY_UI_THEMES = frozenset({'dark', 'light', 'system'})
 
+# Guards every read-modify-write of the config file. Re-entrant so a helper
+# holding it can call load_config/save_config_file.
+CONFIG_LOCK = threading.RLock()
+
 
 def _normalize_theme(raw_theme, legacy_preset=None) -> str:
     """Map config theme (and optional legacy preset) to a valid app theme key."""
@@ -72,40 +77,92 @@ def _normalize_theme(raw_theme, legacy_preset=None) -> str:
     return DEFAULTS['theme']
 
 
-def load_config() -> dict:
-    legacy_preset = None
-    try:
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            data = {}
-        legacy_preset = data.get('preset')
-        config = {k: (v.copy() if isinstance(v, dict) else list(v) if isinstance(v, list) else v)
-                    for k, v in DEFAULTS.items()}
-        config.update({k: v for k, v in data.items() if k in DEFAULTS})
-        config['window'] = dict(DEFAULTS['window'])
-        config['window'].update(data.get('window', {}) or {})
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        config = {k: (v.copy() if isinstance(v, dict) else list(v) if isinstance(v, list) else v)
-                    for k, v in DEFAULTS.items()}
+def _defaults() -> dict:
+    return {k: (v.copy() if isinstance(v, dict) else list(v) if isinstance(v, list) else v)
+            for k, v in DEFAULTS.items()}
 
-    config['recent'] = list(config.get('recent', []))
-    config['theme'] = _normalize_theme(config.get('theme'), legacy_preset)
+
+def _num(value, default, minimum=None):
+    """Return value as int if it is a real finite number, else default."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    if value != value or value in (float('inf'), float('-inf')):
+        return default
+    value = int(value)
+    if minimum is not None and value < minimum:
+        return default
+    return value
+
+
+def _validate_window(raw) -> dict:
+    d = DEFAULTS['window']
+    if not isinstance(raw, dict):
+        return dict(d)
+    return {
+        'width':  _num(raw.get('width'), d['width'], minimum=1),
+        'height': _num(raw.get('height'), d['height'], minimum=1),
+        'x': None if raw.get('x') is None else _num(raw.get('x'), None),
+        'y': None if raw.get('y') is None else _num(raw.get('y'), None),
+    }
+
+
+def _validate_recent(raw) -> list:
+    if not isinstance(raw, list):
+        return []
+    return [p for p in raw if isinstance(p, str) and p]
+
+
+def load_config() -> dict:
+    with CONFIG_LOCK:
+        try:
+            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError, OSError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    config = _defaults()
+    config['window'] = _validate_window(data.get('window'))
+    config['recent'] = _validate_recent(data.get('recent'))
+    raw_theme = data.get('theme') if isinstance(data.get('theme'), str) else None
+    legacy = data.get('preset') if isinstance(data.get('preset'), str) else None
+    config['theme'] = _normalize_theme(raw_theme, legacy)
     return config
 
 
 def save_config_file(data: dict) -> None:
-    parent = os.path.dirname(CONFIG_PATH)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    # Never persist removed keys (e.g. legacy preset) or invalid themes.
+    """Atomically write config (tmp file + os.replace) under CONFIG_LOCK."""
     out = {
         'theme': _normalize_theme(data.get('theme')),
-        'window': data.get('window', DEFAULTS['window']),
-        'recent': list(data.get('recent', [])),
+        'window': _validate_window(data.get('window', DEFAULTS['window'])),
+        'recent': _validate_recent(data.get('recent', [])),
     }
-    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-        json.dump(out, f, indent=2)
+    with CONFIG_LOCK:
+        parent = os.path.dirname(CONFIG_PATH)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        tmp = CONFIG_PATH + '.tmp'
+        try:
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(out, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, CONFIG_PATH)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+
+
+def update_config(mutate) -> dict:
+    """Locked read-modify-write: mutate(cfg) edits a fresh load, then saves."""
+    with CONFIG_LOCK:
+        cfg = load_config()
+        mutate(cfg)
+        save_config_file(cfg)
+        return cfg
 
 
 def _read_text_file(path: str) -> str:
@@ -126,11 +183,11 @@ def _read_text_file(path: str) -> str:
 
 def _update_recent_files(path: str, max_entries: int = 8) -> None:
     """Lightweight recent files tracking. Called on successful open."""
-    try:
-        cfg = load_config()
+    def _mutate(cfg):
         recent = [p for p in cfg.get('recent', []) if p != path]
         recent.insert(0, path)
         cfg['recent'] = recent[:max_entries]
-        save_config_file(cfg)
+    try:
+        update_config(_mutate)
     except Exception:
         pass

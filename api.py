@@ -6,13 +6,17 @@ import mimetypes
 import os
 import threading
 import time
+import webbrowser
+from urllib.parse import urlparse
 
 from config import (
     _read_text_file,
     _update_recent_files,
     load_config,
-    save_config_file,
+    update_config,
 )
+
+_EXTERNAL_SCHEMES = ('http', 'https', 'mailto')
 from debug import _diag, _dlog
 from geometry import (
     _TARGET_READING_CLIENT_LOGICAL,
@@ -97,14 +101,15 @@ class Api:
 
     def save_config(self, data: dict) -> None:
         _dlog('Api.save_config partial=%s', data)
-        current = load_config()
-        if 'theme' in data:
-            current['theme'] = data['theme']
         rect = _geometry_from_window(self)
-        if rect:
-            x, y, w, h = rect
-            current['window'] = {'width': w, 'height': h, 'x': x, 'y': y}
-        save_config_file(current)
+
+        def _mutate(current):
+            if isinstance(data, dict) and 'theme' in data:
+                current['theme'] = data['theme']
+            if rect:
+                x, y, w, h = rect
+                current['window'] = {'width': w, 'height': h, 'x': x, 'y': y}
+        update_config(_mutate)
 
     def _schedule_save_geometry(self) -> None:
         """Debounced geometry save for moved/resized events."""
@@ -143,11 +148,11 @@ class Api:
                     self._pre_fullscreen_rect = rect
 
             if rect:
-                current = load_config()
-                current['window'] = {'width': rect[2], 'height': rect[3],
-                                     'x': rect[0], 'y': rect[1]}
-                save_config_file(current)
-                _dlog('_save_geometry: saved %s (was_fullscreen=%s)', current['window'], is_fullscreen)
+                def _mutate(current):
+                    current['window'] = {'width': rect[2], 'height': rect[3],
+                                         'x': rect[0], 'y': rect[1]}
+                saved = update_config(_mutate)
+                _dlog('_save_geometry: saved %s (was_fullscreen=%s)', saved['window'], is_fullscreen)
         except Exception as e:
             _dlog('_save_geometry FAILED: %s', e)
 
@@ -362,6 +367,26 @@ class Api:
             pass
 
         self._save_geometry()   # remember the new snapped layout for next launch
+
+    def open_external(self, url: str) -> bool:
+        """Open an http/https/mailto link in the default browser/mail client.
+        Any other scheme (file:, javascript:, custom protocols) is refused.
+        Must be public: JS calls it through pywebview.api.open_external().
+        """
+        if not isinstance(url, str):
+            return False
+        url = url.strip()
+        try:
+            scheme = urlparse(url).scheme.lower()
+        except ValueError:
+            return False
+        if scheme not in _EXTERNAL_SCHEMES or len(url) > 8192:
+            _dlog('Api.open_external refused %r', url[:200])
+            return False
+        if scheme in ('http', 'https') and not urlparse(url).netloc:
+            return False
+        _dlog('Api.open_external %s', url)
+        return bool(webbrowser.open(url))
 
     def js_log(self, msg: str) -> None:
         """JS calls this to forward console messages into the Python debug log."""
